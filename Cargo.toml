@@ -1,0 +1,26 @@
+[package]
+name = "kondo"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dawood Ailune@proton.me"]
+description = "A smart file organizer that sorts files by extension categories or filename patterns"
+license = "MIT"
+repository = "https://github.com/Aelune/kondo"
+keywords = ["file", "organizer", "cli", "filesystem", "utility"]
+categories = ["command-line-utilities", "filesystem"]
+
+[dependencies]
+clap = "4.5.46"
+regex = "1.11.2"
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[[bin]]
+name = "kondo"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
