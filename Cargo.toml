@@ -1,6 +1,6 @@
 [package]
 name = "kondo"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Dawood Ailune@proton.me"]
 description = "A smart file organizer that sorts files by extension categories or filename patterns"
@@ -17,6 +17,8 @@ toml = "0.8"
 ratatui = "0.26"
 crossterm = "0.27"
 rayon = "1.8"
+dirs = "5"
+chrono = "0.4"
 
 [dev-dependencies]
 tempfile = "3.8"
@@ -29,3 +31,6 @@ path = "src/main.rs"
 lto = true
 codegen-units = 1
 panic = "abort"
+opt-level = 3
+strip = true
+debug = true
