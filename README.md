@@ -108,27 +108,27 @@ kondo ~/Downloads
 <tr>
 <td width="33%" align="center">
 
-### Step 1
-**Clone Repository**
+### Linux/Mac
+```bash
+curl -fsSL https://raw.githubusercontent.com/aelune/kondo/main/install.sh | bash
+```
+
+</td>
+<td width="33%" align="center">
+
+### Windows
+```bash
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aelune/kondo/main/install.ps1" -OutFile "install.ps1"
+.\install.ps1
+```
+
+</td>
+<td width="33%" align="center">
+
+### Manual
 ```bash
 git clone https://github.com/Aelune/kondo.git
-```
-
-</td>
-<td width="33%" align="center">
-
-### Step 2
-**Navigate to Directory**
-```bash
 cd kondo
-```
-
-</td>
-<td width="33%" align="center">
-
-### Step 3
-**Install**
-```bash
 make install
 ```
 
