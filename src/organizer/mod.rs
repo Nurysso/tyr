@@ -3,14 +3,5 @@
 
 pub mod categorise;
 pub mod filename;
+pub mod intelligent;
 
-// // Re-export commonly used items
-// pub use categorise::{
-//     FileOrganizerConfig,
-//     TuiApp,
-// };
-
-// pub use filename::{
-//     SimilarityConfig,
-//     FilenameTuiApp,
-// };

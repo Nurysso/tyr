@@ -9,6 +9,7 @@ use std::process;
 mod organizer;
 use organizer::categorise::{FileOrganizerConfig, TuiApp};
 use organizer::filename::{FilenameTuiApp, SimilarityConfig};
+use organizer::intelligent::{IntelligentConfig, IntelligentTuiApp};
 
 /// Main configuration structure that includes all settings
 #[derive(Debug, Clone, Deserialize)]
@@ -20,7 +21,13 @@ pub struct KondoConfig {
     pub enable_smart_grouping: bool,
 
     #[serde(default)]
+    pub enable_intelligent_grouping: bool,
+
+    #[serde(default)]
     pub similarity_config: SimilarityConfigToml,
+
+    #[serde(default)]
+    pub intelligent_config: IntelligentConfigToml,
 }
 
 /// TOML representation of similarity config
@@ -42,12 +49,46 @@ pub struct SimilarityConfigToml {
     pub min_similarity_score: f64,
 }
 
-// Default functions for serde
+/// TOML representation of intelligent config
+#[derive(Debug, Clone, Deserialize)]
+pub struct IntelligentConfigToml {
+    #[serde(default = "default_max_lines_to_read")]
+    pub max_lines_to_read: usize,
+
+    #[serde(default = "default_min_cluster_size")]
+    pub min_cluster_size: usize,
+
+    #[serde(default = "default_max_clusters")]
+    pub max_clusters: usize,
+
+    #[serde(default = "default_filename_similarity_weight")]
+    pub filename_similarity_weight: f64,
+
+    #[serde(default = "default_content_similarity_weight")]
+    pub content_similarity_weight: f64,
+
+    #[serde(default = "default_similarity_threshold")]
+    pub similarity_threshold: f64,
+
+    #[serde(default = "default_max_iterations")]
+    pub max_iterations: usize,
+}
+
+// Default functions for serde - Similarity Config
 fn default_levenshtein_threshold() -> f64 { 0.7 }
 fn default_jaccard_threshold() -> f64 { 0.5 }
 fn default_levenshtein_weight() -> f64 { 0.6 }
 fn default_jaccard_weight() -> f64 { 0.4 }
 fn default_min_similarity_score() -> f64 { 0.65 }
+
+// Default functions for serde - Intelligent Config
+fn default_max_lines_to_read() -> usize { 100 }
+fn default_min_cluster_size() -> usize { 2 }
+fn default_max_clusters() -> usize { 20 }
+fn default_filename_similarity_weight() -> f64 { 0.3 }
+fn default_content_similarity_weight() -> f64 { 0.7 }
+fn default_similarity_threshold() -> f64 { 0.65 }
+fn default_max_iterations() -> usize { 100 }
 
 impl Default for SimilarityConfigToml {
     fn default() -> Self {
@@ -61,12 +102,28 @@ impl Default for SimilarityConfigToml {
     }
 }
 
+impl Default for IntelligentConfigToml {
+    fn default() -> Self {
+        Self {
+            max_lines_to_read: 100,
+            min_cluster_size: 2,
+            max_clusters: 20,
+            filename_similarity_weight: 0.3,
+            content_similarity_weight: 0.7,
+            similarity_threshold: 0.65,
+            max_iterations: 100,
+        }
+    }
+}
+
 impl Default for KondoConfig {
     fn default() -> Self {
         Self {
             log_file: None,
             enable_smart_grouping: false,
+            enable_intelligent_grouping: false,
             similarity_config: SimilarityConfigToml::default(),
+            intelligent_config: IntelligentConfigToml::default(),
         }
     }
 }
@@ -80,6 +137,20 @@ impl From<SimilarityConfigToml> for SimilarityConfig {
             levenshtein_weight: toml_config.levenshtein_weight,
             jaccard_weight: toml_config.jaccard_weight,
             min_similarity_score: toml_config.min_similarity_score,
+        }
+    }
+}
+
+impl From<IntelligentConfigToml> for IntelligentConfig {
+    fn from(toml_config: IntelligentConfigToml) -> Self {
+        IntelligentConfig {
+            max_lines_to_read: toml_config.max_lines_to_read,
+            min_cluster_size: toml_config.min_cluster_size,
+            max_clusters: toml_config.max_clusters,
+            filename_similarity_weight: toml_config.filename_similarity_weight,
+            content_similarity_weight: toml_config.content_similarity_weight,
+            similarity_threshold: toml_config.similarity_threshold,
+            max_iterations: toml_config.max_iterations,
         }
     }
 }
@@ -189,10 +260,16 @@ fn load_kondo_config() -> KondoConfig {
             r#"# Kondo File Organizer Configuration
 batch_size = 100
 
-# Enable smart grouping using ML-based similarity detection
+# Enable smart grouping using filename similarity detection
 # When enabled, files with similar names will be grouped together
 # even if they have different extensions
 enable_smart_grouping = false
+
+# Enable intelligent grouping using ML clustering with TF-IDF
+# This analyzes file content and uses advanced clustering algorithms
+# More powerful than smart grouping but slower
+enable_intelligent_grouping = false
+
 log_file = "{}"
 
 # Files/patterns to skip during organization
@@ -227,7 +304,35 @@ jaccard_weight = 0.4
 # 0.65 is a good balance for most use cases
 min_similarity_score = 0.65
 
-# Define your custom categories
+# Intelligent grouping configuration (ML-based clustering)
+[intelligent_config]
+# Maximum number of lines to read from text files for content analysis
+max_lines_to_read = 100
+
+# Minimum number of files required to form a cluster/group
+min_cluster_size = 2
+
+# Maximum number of clusters to create
+# Higher values = more granular grouping
+max_clusters = 20
+
+# Weight for filename similarity (0.0 to 1.0)
+# How much the filename affects grouping decisions
+filename_similarity_weight = 0.3
+
+# Weight for content similarity (0.0 to 1.0)
+# How much file content affects grouping decisions (for text files)
+# Note: filename_similarity_weight + content_similarity_weight should = 1.0
+content_similarity_weight = 0.7
+
+# Minimum similarity threshold for grouping files (0.0 to 1.0)
+# Higher = files must be more similar to be grouped together
+similarity_threshold = 0.65
+
+# Maximum iterations for K-means clustering algorithm
+max_iterations = 100
+
+# Define your custom categories (used when intelligent grouping is disabled)
 # Each category has:
 #   - extensions: list of file extensions (without dot)
 #   - folder_name: optional custom folder name (defaults to category key)
@@ -306,7 +411,9 @@ folder_name = "Design Files"
         return KondoConfig {
             log_file: Some(log_path_str),
             enable_smart_grouping: false,
+            enable_intelligent_grouping: false,
             similarity_config: SimilarityConfigToml::default(),
+            intelligent_config: IntelligentConfigToml::default(),
         };
     }
 
@@ -340,17 +447,12 @@ fn print_help() {
     println!("╚═══════════════════════════════════════════════════╝");
     println!("USAGE:");
     println!("    kondo [OPTIONS] [DIRECTORY]");
-    println!("OPTIONS:");
-    println!(
-        "    -c, --categorize    Organize files by category (images, videos, documents, etc.)"
-    );
+    println!("\nOPTIONS:");
+    println!("    -c, --categorize    Organize files by category (images, videos, documents, etc.)");
     println!("    -f, --filename      Group similar files based on filename patterns");
+    println!("    -i, --intelligent   Use ML-based clustering with TF-IDF content analysis");
     println!("    -nui, --no-ui       Skip UI and automatically organize files");
     println!("    -h, --help          Show this help message");
-    println!("\nEXAMPLES:");
-    println!("    kondo -c /path/to/folder          # Interactive categorization");
-    println!("    kondo -c -nui /path/to/folder     # Auto-categorize without UI");
-    println!("    kondo -f -nui /path/to/folder     # Auto-group by filename without UI\n");
 }
 
 fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: bool) -> std::io::Result<()> {
@@ -366,18 +468,11 @@ fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: b
     );
 
     println!("Kondo - Categorize Mode");
-    // println!("📍 Config location: {}", config_path.display());
-
-    // if let Some(log_path) = &kondo_config.log_file {
-    //     println!("📝 Logging to: {}", log_path);
-    // }
 
     // Load or create config
     let config = if config_path.exists() {
-        // println!("✓ Loading existing config...");
         match FileOrganizerConfig::load_from_file(&config_path) {
             Ok(cfg) => {
-                // println!("✓ Config loaded successfully");
                 log_to_file(&kondo_config.log_file, "Config loaded successfully");
                 cfg
             }
@@ -410,13 +505,10 @@ fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: b
         default_config
     };
 
-    // println!("🎯 Target directory: {}\n", target_dir.display());
-
     // Launch TUI or auto-organize
     let mut app = TuiApp::new(config, target_dir);
 
     let result = if no_ui {
-        // println!("⚡ Auto-organizing files without UI...\n");
         app.auto_organize()
     } else {
         app.run()
@@ -454,19 +546,8 @@ fn run_filename_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: boo
 
     println!("Kondo - Filename Similarity Mode");
 
-    // if let Some(log_path) = &kondo_config.log_file {
-    //     println!("📝 Logging to: {}\n", log_path);
-    // }
-
-    // println!("🎯 Target directory: {}", target_dir.display());
-
     // Load similarity config from kondo.toml
     let similarity_config: SimilarityConfig = kondo_config.similarity_config.clone().into();
-
-    // println!("⚙️  Similarity thresholds:");
-    // println!("   • Levenshtein weight: {:.2}", similarity_config.levenshtein_weight);
-    // println!("   • Jaccard weight: {:.2}", similarity_config.jaccard_weight);
-    // println!("   • Min similarity score: {:.2}\n", similarity_config.min_similarity_score);
 
     log_to_file(
         &kondo_config.log_file,
@@ -481,7 +562,6 @@ fn run_filename_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: boo
     let mut app = FilenameTuiApp::new(target_dir, similarity_config);
 
     let result = if no_ui {
-        // println!("⚡ Auto-analyzing and organizing files without UI...\n");
         app.auto_organize()
     } else {
         app.run()
@@ -503,15 +583,66 @@ fn run_filename_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: boo
                 "Organization completed successfully",
             );
             println!("\n✦ File organization complete!");
-
-            // if let Some(log_path) = &kondo_config.log_file {
-            //     println!("📄 Full log available at: {}", log_path);
-            // }
         }
         Err(e) => {
             log_to_file(
                 &kondo_config.log_file,
                 &format!("Error during organization: {}", e),
+            );
+        }
+    }
+
+    result
+}
+
+fn run_intelligent_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: bool) -> std::io::Result<()> {
+    log_to_file(
+        &kondo_config.log_file,
+        &format!("=== Starting Kondo (Intelligent ML Mode - No UI: {}) ===", no_ui),
+    );
+    log_to_file(
+        &kondo_config.log_file,
+        &format!("Target directory: {}", target_dir.display()),
+    );
+
+    println!("Kondo - Intelligent ML Mode");
+
+    // Load intelligent config from kondo.toml
+    let intelligent_config: IntelligentConfig = kondo_config.intelligent_config.clone().into();
+
+    log_to_file(
+        &kondo_config.log_file,
+        &format!(
+            "Using intelligent config: max_clusters={}, min_cluster_size={}, filename_weight={:.2}, content_weight={:.2}",
+            intelligent_config.max_clusters,
+            intelligent_config.min_cluster_size,
+            intelligent_config.filename_similarity_weight,
+            intelligent_config.content_similarity_weight
+        ),
+    );
+
+    // Launch TUI or auto-analyze
+    let mut app = IntelligentTuiApp::new(intelligent_config, target_dir);
+
+    let result = if no_ui {
+        app.auto_analyze()
+    } else {
+        app.run()
+    };
+
+    // Log completion
+    match &result {
+        Ok(_) => {
+            log_to_file(
+                &kondo_config.log_file,
+                "Intelligent analysis completed successfully",
+            );
+            println!("\n✦ Intelligent analysis complete!");
+        }
+        Err(e) => {
+            log_to_file(
+                &kondo_config.log_file,
+                &format!("Error during intelligent analysis: {}", e),
             );
         }
     }
@@ -658,11 +789,70 @@ fn main() {
                 process::exit(1);
             }
         }
+        "-i" | "--intelligent" => {
+            // Find target directory (skip -nui flag if present)
+            let target_dir = if args.len() > 2 {
+                let mut path_arg = None;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 1 && arg != "-nui" && arg != "--no-ui" {
+                        path_arg = Some(arg);
+                        break;
+                    }
+                }
+
+                if let Some(path) = path_arg {
+                    PathBuf::from(path)
+                } else {
+                    match env::current_dir() {
+                        Ok(dir) => dir,
+                        Err(e) => {
+                            eprintln!("✗ Error: Could not get current directory: {}", e);
+                            log_to_file(
+                                &kondo_config.log_file,
+                                &format!("Error: Could not get current directory: {}", e),
+                            );
+                            process::exit(1);
+                        }
+                    }
+                }
+            } else {
+                match env::current_dir() {
+                    Ok(dir) => dir,
+                    Err(e) => {
+                        eprintln!("✗ Error: Could not get current directory: {}", e);
+                        log_to_file(
+                            &kondo_config.log_file,
+                            &format!("Error: Could not get current directory: {}", e),
+                        );
+                        process::exit(1);
+                    }
+                }
+            };
+
+            if !target_dir.exists() {
+                eprintln!(
+                    "✗ Error: Directory does not exist: {}",
+                    target_dir.display()
+                );
+                log_to_file(
+                    &kondo_config.log_file,
+                    &format!("Error: Directory does not exist: {}", target_dir.display()),
+                );
+                process::exit(1);
+            }
+
+            if let Err(e) = run_intelligent_mode(target_dir, &kondo_config, no_ui) {
+                eprintln!("✗ Error: {}", e);
+                log_to_file(&kondo_config.log_file, &format!("Fatal error: {}", e));
+                process::exit(1);
+            }
+        }
         "-nui" | "--no-ui" => {
-            eprintln!("✗ Error: -nui flag must be used with -c or -f mode");
+            eprintln!("✗ Error: -nui flag must be used with -c, -f, or -i mode");
             eprintln!("\nExamples:");
             eprintln!("  kondo -c -nui /path/to/folder");
             eprintln!("  kondo -f -nui /path/to/folder");
+            eprintln!("  kondo -i -nui /path/to/folder");
             process::exit(1);
         }
         _ => {
