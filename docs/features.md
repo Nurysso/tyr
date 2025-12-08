@@ -1,4 +1,4 @@
-# Kondo File Organizer - Complete Features
+# Tyr File Organizer - Complete Features
 
 ## 🚀 Core Features
 
@@ -25,7 +25,7 @@
   - Smart clustering for related files
 
 ### 3. External Configuration
-- Config stored at `~/.config/kondo/kondo.toml`
+- Config stored at `~/.config/tyr/tyr.toml`
 - Easy to edit and backup
 - Platform-independent paths
 
@@ -191,9 +191,9 @@ make uninstall     # Remove installation
 
 ### Direct Usage
 ```bash
-kondo                  # Current directory
-kondo ~/Downloads     # Specific directory
-kondo /path/to/folder # Any path
+tyr                  # Current directory
+tyr ~/Downloads     # Specific directory
+tyr /path/to/folder # Any path
 ```
 
 ## Documentation
@@ -249,13 +249,13 @@ Memory:   ~12MB (+50%)
 ### Speedup vs Manual Organization
 ```
 Manual:   ~30 minutes (estimated)
-Kondo:    2-3 seconds
+Tyr:    2-3 seconds
 Speedup:  ~600x faster!
 ```
 
 ## Comparison with Other Tools
 
-| Feature | Kondo | Traditional Organizers |
+| Feature | Tyr | Traditional Organizers |
 |---------|-------|----------------------|
 | Extension-based | Yes | Yes |
 | Smart grouping | Yes | No |
@@ -306,7 +306,7 @@ Contributions welcome for:
 - Levenshtein distance algorithm
 - Jaccard similarity algorithm
 - Enhanced TUI with grouping info
-- External configuration at `~/.config/kondo/`
+- External configuration at `~/.config/tyr/`
 
 ### v0.1.0 (Previous)
 - Lazy directory creation
@@ -367,7 +367,7 @@ Users report:
 
 ## 🌟 Highlights
 
-### What Makes Kondo Special?
+### What Makes Tyr Special?
 
 1. **Intelligence**: Not just extension-based, understands relationships
 2. **Speed**: Parallel processing + lazy operations = blazing fast
@@ -379,7 +379,7 @@ Users report:
 ## 📞 Support
 
 - **Documentation**: See included `.md` files
-- **Config**: `~/.config/kondo/kondo.toml`
+- **Config**: `~/.config/tyr/tyr.toml`
 - **Issues**: Check error logs in TUI
 - **Testing**: Use dry run mode first
 
@@ -390,15 +390,15 @@ Users report:
 make install
 
 # 2. Enable smart grouping (optional)
-nano ~/.config/kondo/kondo.toml
+nano ~/.config/tyr/tyr.toml
 # Set: enable_smart_grouping = true
 
 # 3. Run
-kondo ~/Downloads
+tyr ~/Downloads
 
 # 4. Enjoy organized files! 🎉
 ```
 
 ---
 
-**Kondo**: The intelligent file organizer that understands relationships, not just extensions. 🚀
+**Tyr**: The intelligent file organizer that understands relationships, not just extensions. 🚀

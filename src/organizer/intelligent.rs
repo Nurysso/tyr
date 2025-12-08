@@ -91,7 +91,7 @@ pub fn organize_files_intelligently(
         }
     };
 
-    send_progress("🔍 Scanning directory for files...".to_string());
+    send_progress("Scanning directory for files...".to_string());
 
     // Step 1: Traverse directory and collect files
     let files = collect_files(directory)?;
@@ -100,18 +100,18 @@ pub fn organize_files_intelligently(
         return Ok(ClusterResult { groups: Vec::new() });
     }
 
-    send_progress(format!("📊 Found {} files to analyze", files.len()));
+    send_progress(format!("Found {} files to analyze", files.len()));
 
     // Step 2: Extract features from each file
-    send_progress("🔬 Extracting features...".to_string());
+    send_progress("Extracting features...".to_string());
     let file_features = extract_features(&files, config)?;
 
     // Step 3: Perform clustering
-    send_progress("🧩 Clustering files...".to_string());
+    send_progress("Clustering files...".to_string());
     let clusters = perform_clustering(&file_features, config)?;
 
     // Step 4: Generate group names
-    send_progress("📝 Generating group names...".to_string());
+    send_progress("Generating group names...".to_string());
     let groups = generate_group_names(clusters, &file_features);
 
     send_progress(format!("✓ Created {} groups", groups.len()));
@@ -653,7 +653,7 @@ pub fn move_files_to_groups(
 ) -> Result<Vec<String>, io::Error> {
     let mut log = Vec::new();
 
-    for (i, group) in result.groups.iter().enumerate() {
+    for (_i, group) in result.groups.iter().enumerate() {
         // Sanitize group name for directory
         let dir_name = sanitize_dirname(&group.suggested_name);
         let group_dir = base_path.join(&dir_name);
@@ -890,7 +890,7 @@ impl IntelligentTuiApp {
             .split(f.size());
 
         // Title
-        let title = Paragraph::new(" Kondo - Intelligent ML-Based File Organizer")
+        let title = Paragraph::new(" Tyr - Intelligent ML-Based File Organizer")
             .style(
                 Style::default()
                     .fg(Color::Magenta)

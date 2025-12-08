@@ -158,23 +158,23 @@ impl From<IntelligentConfigToml> for IntelligentConfig {
 /// Gets the config directory path in a cross-platform way
 fn get_config_dir() -> std::io::Result<PathBuf> {
     let config_dir = if cfg!(target_os = "windows") {
-        // Windows: Use %APPDATA%\kondo
+        // Windows: Use %APPDATA%\tyr
         let appdata = env::var("APPDATA").map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "Could not determine APPDATA directory",
             )
         })?;
-        PathBuf::from(appdata).join("kondo")
+        PathBuf::from(appdata).join("tyr")
     } else {
-        // Unix/Linux/macOS: Use ~/.config/kondo
+        // Unix/Linux/macOS: Use ~/.config/tyr
         let home = env::var("HOME").map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "Could not determine HOME directory",
             )
         })?;
-        PathBuf::from(home).join(".config").join("kondo")
+        PathBuf::from(home).join(".config").join("tyr")
     };
 
     if !config_dir.exists() {
@@ -185,19 +185,19 @@ fn get_config_dir() -> std::io::Result<PathBuf> {
     Ok(config_dir)
 }
 
-/// Gets the config file path: Windows: %APPDATA%\kondo\kondo.toml, Unix: ~/.config/kondo/kondo.toml
+/// Gets the config file path: Windows: %APPDATA%\tyr\tyr.toml, Unix: ~/.config/tyr/tyr.toml
 fn get_config_path() -> std::io::Result<PathBuf> {
     let config_dir = get_config_dir()?;
-    Ok(config_dir.join("kondo.toml"))
+    Ok(config_dir.join("tyr.toml"))
 }
 
-/// Gets the default log file path: Windows: %APPDATA%\kondo\kondo.log, Unix: ~/.config/kondo/kondo.log
+/// Gets the default log file path: Windows: %APPDATA%\tyr\tyr.log, Unix: ~/.config/tyr/tyr.log
 fn get_default_log_path() -> std::io::Result<PathBuf> {
     let config_dir = get_config_dir()?;
-    Ok(config_dir.join("kondo.log"))
+    Ok(config_dir.join("tyr.log"))
 }
 
-/// Load configuration from kondo.toml or create default
+/// Load configuration from tyr.toml or create default
 fn load_kondo_config() -> KondoConfig {
     let config_path = match get_config_path() {
         Ok(path) => path,
@@ -257,7 +257,7 @@ fn load_kondo_config() -> KondoConfig {
             .replace('\\', "/");
 
         let config_content = format!(
-            r#"# Kondo File Organizer Configuration
+            r#"# Tyr File Organizer Configuration
 batch_size = 100
 
 # Enable smart grouping using filename similarity detection
@@ -446,8 +446,9 @@ fn print_help() {
     println!("║                                                   ║");
     println!("╚═══════════════════════════════════════════════════╝");
     println!("USAGE:");
-    println!("    kondo [OPTIONS] [DIRECTORY]");
+    println!("    tyr [OPTIONS] [DIRECTORY]");
     println!("\nOPTIONS:");
+    println!("    -v, --version    Shows version duh!)");
     println!("    -c, --categorize    Organize files by category (images, videos, documents, etc.)");
     println!("    -f, --filename      Group similar files based on filename patterns");
     println!("    -i, --intelligent   Use ML-based clustering with TF-IDF content analysis");
@@ -460,14 +461,14 @@ fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: b
 
     log_to_file(
         &kondo_config.log_file,
-        &format!("=== Starting Kondo (Categorize Mode - No UI: {}) ===", no_ui),
+        &format!("=== Starting Tyr (Categorize Mode - No UI: {}) ===", no_ui),
     );
     log_to_file(
         &kondo_config.log_file,
         &format!("Target directory: {}", target_dir.display()),
     );
 
-    println!("Kondo - Categorize Mode");
+    println!("Tyr - Categorize Mode");
 
     // Load or create config
     let config = if config_path.exists() {
@@ -537,16 +538,16 @@ fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: b
 fn run_filename_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: bool) -> std::io::Result<()> {
     log_to_file(
         &kondo_config.log_file,
-        &format!("=== Starting Kondo (Filename Similarity Mode - No UI: {}) ===", no_ui),
+        &format!("=== Starting Tyr (Filename Similarity Mode - No UI: {}) ===", no_ui),
     );
     log_to_file(
         &kondo_config.log_file,
         &format!("Target directory: {}", target_dir.display()),
     );
 
-    println!("Kondo - Filename Similarity Mode");
+    println!("Tyr - Filename Similarity Mode");
 
-    // Load similarity config from kondo.toml
+    // Load similarity config from tyr.toml
     let similarity_config: SimilarityConfig = kondo_config.similarity_config.clone().into();
 
     log_to_file(
@@ -598,16 +599,16 @@ fn run_filename_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: boo
 fn run_intelligent_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: bool) -> std::io::Result<()> {
     log_to_file(
         &kondo_config.log_file,
-        &format!("=== Starting Kondo (Intelligent ML Mode - No UI: {}) ===", no_ui),
+        &format!("=== Starting Tyr (Intelligent ML Mode - No UI: {}) ===", no_ui),
     );
     log_to_file(
         &kondo_config.log_file,
         &format!("Target directory: {}", target_dir.display()),
     );
 
-    println!("Kondo - Intelligent ML Mode");
+    println!("Tyr - Intelligent ML Mode");
 
-    // Load intelligent config from kondo.toml
+    // Load intelligent config from tyr.toml
     let intelligent_config: IntelligentConfig = kondo_config.intelligent_config.clone().into();
 
     log_to_file(
@@ -850,14 +851,18 @@ fn main() {
         "-nui" | "--no-ui" => {
             eprintln!("✗ Error: -nui flag must be used with -c, -f, or -i mode");
             eprintln!("\nExamples:");
-            eprintln!("  kondo -c -nui /path/to/folder");
-            eprintln!("  kondo -f -nui /path/to/folder");
-            eprintln!("  kondo -i -nui /path/to/folder");
+            eprintln!("  tyr -c -nui /path/to/folder");
+            eprintln!("  tyr -f -nui /path/to/folder");
+            eprintln!("  tyr -i -nui /path/to/folder");
             process::exit(1);
+        }
+        "-v" | "--version" =>{
+            println!("0.4.4");
+
         }
         _ => {
             eprintln!("✗ Error: Unknown option '{}'", mode);
-            eprintln!("\nRun 'kondo --help' for usage information");
+            eprintln!("\nRun 'tyr --help' for usage information");
             log_to_file(
                 &kondo_config.log_file,
                 &format!("Error: Unknown option '{}'", mode),
@@ -866,5 +871,5 @@ fn main() {
         }
     }
 
-    log_to_file(&kondo_config.log_file, "=== Kondo session ended ===\n");
+    log_to_file(&kondo_config.log_file, "=== Tyr session ended ===\n");
 }

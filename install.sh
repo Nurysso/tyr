@@ -5,11 +5,11 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' 
+NC='\033[0m'
 
 # Configuration
-REPO="aelune/kondo"
-BINARY_NAME="kondo"
+REPO="aelune/tyr"
+BINARY_NAME="tyr"
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_PATH="${INSTALL_DIR}/${BINARY_NAME}"
 

@@ -1,5 +1,5 @@
-# Kondo Installer for Windows
-# Usage: irm https://raw.githubusercontent.com/aelune/kondo/main/install.ps1 | iex
+# Tyr Installer for Windows
+# Usage: irm https://raw.githubusercontent.com/aelune/tyr/main/install.ps1 | iex
 # script by claude
 param(
     [string]$Version = "latest"
@@ -8,13 +8,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$REPO = "aelune/kondo"
-$BINARY_NAME = "kondo"
-$INSTALL_DIR = "$env:LOCALAPPDATA\Programs\kondo"
-$CONFIG_DIR = "$env:APPDATA\kondo"
+$REPO = "aelune/tyr"
+$BINARY_NAME = "tyr"
+$INSTALL_DIR = "$env:LOCALAPPDATA\Programs\tyr"
+$CONFIG_DIR = "$env:APPDATA\tyr"
 
 Write-Host ""
-Write-Host "Kondo Installer for Windows" -ForegroundColor Cyan
+Write-Host "Tyr Installer for Windows" -ForegroundColor Cyan
 Write-Host "===========================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -44,7 +44,7 @@ try {
     }
 
     $release = Invoke-RestMethod -Uri $releaseUrl -Headers @{
-        "User-Agent" = "Kondo-Installer"
+        "User-Agent" = "Tyr-Installer"
     }
 
     $asset = $release.assets | Where-Object { $_.name -eq $ASSET_NAME }
@@ -91,7 +91,7 @@ try {
 
         Write-Host "✓ Added to PATH" -ForegroundColor Green
         Write-Host ""
-        Write-Host "Note: New terminals will automatically have kondo in PATH" -ForegroundColor Cyan
+        Write-Host "Note: New terminals will automatically have tyr in PATH" -ForegroundColor Cyan
         Write-Host "      Current terminal is already updated!" -ForegroundColor Cyan
     } else {
         Write-Host "✓ Already in PATH" -ForegroundColor Green
@@ -100,7 +100,7 @@ try {
     Write-Host ""
     Write-Host "Installation complete! 🎉" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Run 'kondo --help' to get started" -ForegroundColor Cyan
+    Write-Host "Run 'tyr --help' to get started" -ForegroundColor Cyan
     Write-Host ""
 
 } catch {

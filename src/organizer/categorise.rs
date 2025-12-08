@@ -549,7 +549,7 @@ impl TuiApp {
             .split(f.size());
 
         // Title
-        let title = Paragraph::new(" Kondo - Extension-Based File Organizer")
+        let title = Paragraph::new(" Tyr - Extension-Based File Organizer")
             .style(
                 Style::default()
                     .fg(Color::Cyan)
@@ -716,8 +716,8 @@ impl TuiApp {
     }
 
     fn draw_logs(&self, f: &mut ratatui::Frame, area: Rect) {
-        let logs = self.organizer.get_logger().get_logs();
-        let items: Vec<ListItem> = logs
+        let _logs = self.organizer.get_logger().get_logs();
+        let items: Vec<ListItem> = _logs
             .iter()
             .rev()
             .take(3)
@@ -756,7 +756,6 @@ impl TuiApp {
     /// Auto-organize files without UI interaction
     /// Automatically starts organization (equivalent to pressing 's')
     pub fn auto_organize(&mut self) -> io::Result<()> {
-        // println!("📂 Scanning directory...");
 
         // Start organization (non-dry-run mode)
         self.start_organization(false)?;
@@ -793,7 +792,7 @@ impl TuiApp {
             }
 
             // Show recent logs
-            let logs = self.organizer.get_logger().get_logs();
+            let _logs = self.organizer.get_logger().get_logs();
             // if !logs.is_empty() {
                 // println!("\n Recent activity:");
                 // for log in logs.iter().rev().take(5) {

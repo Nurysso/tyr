@@ -1,21 +1,21 @@
 # Maintainer: Dawood <Ailune@proton.me>
-pkgname=kondo-bin
-pkgver=0.4.3
+pkgname=tyr-bin
+pkgver=0.4.4
 pkgrel=1
 pkgdesc="Intelligent file organization powered by machine learning and simple algos"
 arch=('x86_64' 'aarch64')
-url="https://github.com/Aelune/kondo"
+url="https://github.com/Aelune/tyr"
 license=('GPL-3.0-or-later')
-provides=('kondo')
-conflicts=('kondo')
+provides=('tyr')
+conflicts=('tyr')
 
 source_x86_64=(
-  "kondo-linux-x86_64::https://github.com/Aelune/kondo/releases/download/v${pkgver}/kondo-linux-x86_64"
-  "LICENSE::https://raw.githubusercontent.com/Aelune/kondo/main/LICENSE"
+  "tyr-linux-x86_64::https://github.com/Aelune/tyr/releases/download/v${pkgver}/tyr-linux-x86_64"
+  "LICENSE::https://raw.githubusercontent.com/Aelune/tyr/main/LICENSE"
 )
 source_aarch64=(
-  "kondo-linux-aarch64::https://github.com/Aelune/kondo/releases/download/v${pkgver}/kondo-linux-aarch64"
-  "LICENSE::https://raw.githubusercontent.com/Aelune/kondo/main/LICENSE"
+  "tyr-linux-aarch64::https://github.com/Aelune/tyr/releases/download/v${pkgver}/tyr-linux-aarch64"
+  "LICENSE::https://raw.githubusercontent.com/Aelune/tyr/main/LICENSE"
 )
 
 sha256sums_x86_64=(
@@ -29,9 +29,9 @@ sha256sums_aarch64=(
 
 package() {
     if [ "$CARCH" = "x86_64" ]; then
-        install -Dm755 "$srcdir/kondo-linux-x86_64" "$pkgdir/usr/bin/kondo"
+        install -Dm755 "$srcdir/tyr-linux-x86_64" "$pkgdir/usr/bin/tyr"
     elif [ "$CARCH" = "aarch64" ]; then
-        install -Dm755 "$srcdir/kondo-linux-aarch64" "$pkgdir/usr/bin/kondo"
+        install -Dm755 "$srcdir/tyr-linux-aarch64" "$pkgdir/usr/bin/tyr"
     fi
 
     install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

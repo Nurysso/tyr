@@ -1,6 +1,6 @@
-# Kondo File Organizer - Cross-Platform Makefile
+# Tyr File Organizer - Cross-Platform Makefile
 
-BINARY_NAME = kondo
+BINARY_NAME = tyr
 CARGO = cargo
 
 # Detect OS
@@ -8,8 +8,8 @@ ifeq ($(OS),Windows_NT)
 	# Windows detection
 	DETECTED_OS := Windows
 	EXE_EXT := .exe
-	CONFIG_DIR := $(APPDATA)/kondo
-	INSTALL_DIR := $(LOCALAPPDATA)/Programs/kondo
+	CONFIG_DIR := $(APPDATA)/tyr
+	INSTALL_DIR := $(LOCALAPPDATA)/Programs/tyr
 	RM := del /Q
 	MKDIR := mkdir
 	CP := copy
@@ -18,7 +18,7 @@ else
 	# Unix-like systems
 	DETECTED_OS := $(shell uname -s)
 	EXE_EXT :=
-	CONFIG_DIR := $(HOME)/.config/kondo
+	CONFIG_DIR := $(HOME)/.config/tyr
 	INSTALL_DIR := $(HOME)/.local/bin
 	RM := rm -f
 	MKDIR := mkdir -p
@@ -27,14 +27,14 @@ else
 endif
 
 BINARY = $(BINARY_NAME)$(EXE_EXT)
-CONFIG_FILE = $(CONFIG_DIR)$(PATH_SEP)kondo.toml
-LOG_FILE = $(CONFIG_DIR)$(PATH_SEP)kondo.log
+CONFIG_FILE = $(CONFIG_DIR)$(PATH_SEP)tyr.toml
+LOG_FILE = $(CONFIG_DIR)$(PATH_SEP)tyr.log
 
 .PHONY: help build install clean run test config-edit config-path config-reset uninstall check dev fmt lint
 
 # Default target
 help:
-	@echo "Kondo File Organizer - Make Commands"
+	@echo "Tyr File Organizer - Make Commands"
 	@echo "===================================="
 	@echo ""
 	@echo "Detected OS: $(DETECTED_OS)"
@@ -68,7 +68,7 @@ help:
 
 # Build release binary
 build:
-	@echo "Building Kondo for $(DETECTED_OS)..."
+	@echo "Building Tyr for $(DETECTED_OS)..."
 	@$(CARGO) build --release
 	@echo "Build complete: target/release/$(BINARY)"
 
@@ -84,7 +84,7 @@ install:
 	@exit 1
 else
 install: build
-	@echo "Installing Kondo..."
+	@echo "Installing Tyr..."
 	@$(MKDIR) $(INSTALL_DIR)
 	@$(MKDIR) $(CONFIG_DIR)
 	@$(CP) target/release/$(BINARY) $(INSTALL_DIR)/$(BINARY)
@@ -92,7 +92,7 @@ install: build
 	@echo "Installed to: $(INSTALL_DIR)/$(BINARY)"
 	@echo "Config directory: $(CONFIG_DIR)"
 	@echo ""
-	@echo "Run 'kondo --help' to start organizing!"
+	@echo "Run 'tyr --help' to start organizing!"
 	@if ! echo "$$PATH" | grep -q "$(INSTALL_DIR)"; then \
 		echo ""; \
 		echo "Add $(INSTALL_DIR) to your PATH:"; \
@@ -107,7 +107,7 @@ uninstall:
 	@echo "  .\\build.ps1 uninstall"
 else
 uninstall:
-	@echo "Uninstalling Kondo..."
+	@echo "Uninstalling Tyr..."
 	@$(RM) $(INSTALL_DIR)/$(BINARY)
 	@echo "Binary removed"
 	@echo ""
@@ -155,7 +155,7 @@ config-reset:
 	@echo "Resetting config to defaults..."
 	@if [ -f "$(CONFIG_FILE)" ]; then \
 		$(RM) "$(CONFIG_FILE)"; \
-		echo "Config removed. Run 'kondo' to generate new defaults."; \
+		echo "Config removed. Run 'tyr' to generate new defaults."; \
 	else \
 		echo "No config to reset."; \
 	fi
@@ -226,7 +226,7 @@ version:
 
 # Quick start guide
 quickstart:
-	@echo "Kondo Quick Start Guide"
+	@echo "Tyr Quick Start Guide"
 	@echo "======================="
 	@echo ""
 	@echo "1. Build the project:"
@@ -243,6 +243,6 @@ else
 endif
 	@echo ""
 	@echo "4. Organize files:"
-	@echo "   kondo -c /path/to/directory    # By extension"
-	@echo "   kondo -f /path/to/directory    # By filename similarity"
+	@echo "   tyr -c /path/to/directory    # By extension"
+	@echo "   tyr -f /path/to/directory    # By filename similarity"
 	@echo ""

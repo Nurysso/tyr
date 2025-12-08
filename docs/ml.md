@@ -2,7 +2,7 @@
 
 ## 🧠 Overview
 
-Kondo now includes ML-based file similarity detection using two algorithms:
+Tyr now includes ML-based file similarity detection using two algorithms:
 - **Levenshtein Distance** - Character-level similarity
 - **Jaccard Similarity** - Token/word-level similarity
 
@@ -45,18 +45,18 @@ Downloads/
 
 ### Enable Smart Grouping
 
-Edit `~/.config/kondo/kondo.toml`:
+Edit `~/.config/tyr/tyr.toml`:
 
 ```toml
 enable_smart_grouping = true
 ```
 
-That's it! Run kondo and watch the magic happen.
+That's it! Run tyr and watch the magic happen.
 
-### Run Kondo
+### Run Tyr
 
 ```bash
-kondo ~/Downloads
+tyr ~/Downloads
 ```
 
 Press `s` to start or `d` for dry run to preview groupings.
@@ -230,7 +230,7 @@ random_script/
 Always test first to see what groups will be created:
 
 ```bash
-kondo
+tyr
 # Press 'd' for dry run
 ```
 
@@ -357,7 +357,7 @@ pub fn custom_similarity(s1: &str, s2: &str) -> f64 {
 
 ### Series Detection
 
-Kondo automatically detects common patterns:
+Tyr automatically detects common patterns:
 - Numbered: `file (1)`, `file (2)`
 - Versioned: `doc_v1`, `doc_v2`
 - Sequential: `IMG_001`, `IMG_002`
@@ -409,7 +409,7 @@ Planned features:
 
 ## 🎉 Conclusion
 
-Smart grouping transforms Kondo from a simple extension-based organizer into an intelligent file management assistant. Try it out and watch your messy folders become beautifully organized!
+Smart grouping transforms Tyr from a simple extension-based organizer into an intelligent file management assistant. Try it out and watch your messy folders become beautifully organized!
 
 **Enable it today:**
 ```toml

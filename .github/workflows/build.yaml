@@ -20,29 +20,29 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: kondo
-            asset_name: kondo-linux-x86_64
+            artifact_name: tyr
+            asset_name: tyr-linux-x86_64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            artifact_name: kondo
-            asset_name: kondo-linux-aarch64
+            artifact_name: tyr
+            asset_name: tyr-linux-aarch64
             experimental: true  # Allow this build to fail
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: kondo
-            asset_name: kondo-macos-x86_64
+            artifact_name: tyr
+            asset_name: tyr-macos-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: kondo
-            asset_name: kondo-macos-aarch64
+            artifact_name: tyr
+            asset_name: tyr-macos-aarch64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: kondo.exe
-            asset_name: kondo-windows-x86_64.exe
+            artifact_name: tyr.exe
+            asset_name: tyr-windows-x86_64.exe
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            artifact_name: kondo.exe
-            asset_name: kondo-windows-aarch64.exe
+            artifact_name: tyr.exe
+            asset_name: tyr-windows-aarch64.exe
             experimental: true  # Allow this build to fail
 
     steps:

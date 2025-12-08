@@ -1,6 +1,6 @@
 <div align="center">
 
-# Kondo
+# Tyr
 
 **Intelligent file organization powered by machine learning**
 
@@ -13,7 +13,8 @@
 
 ---
 
-![Demo](assets/demo.gif)
+<img src="https://raw.githubusercontent.com/Nurysso/Hermes/main/kondo/kondo.gif" alt="Demo" width="100%" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);"/>
+<!-- ![Demo](assets/demo.gif) -->
 
 </div>
 
@@ -23,14 +24,14 @@
 <tr>
 <td width="50%">
 
-Kondo is a **blazingly fast** file organizer built in Rust that automatically categorizes and groups your files. Unlike traditional organizers that only look at file extensions, Kondo uses **machine learning algorithms** to understand relationships between files and intelligently organize them.
+Tyr is a **blazingly fast** file organizer built in Rust that automatically categorizes and groups your files. Unlike traditional organizers that only look at file extensions, Tyr uses **machine learning algorithms** to understand relationships between files and intelligently organize them.
 
 </td>
 <td width="50%">
 
 ```rust
 // Organize in seconds
-kondo ~/Downloads
+tyr ~/Downloads
 
 // Features
 ✓ ML-powered grouping
@@ -110,7 +111,7 @@ kondo ~/Downloads
 
 ### Linux/Mac
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aelune/kondo/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/aelune/tyr/main/install.sh | bash
 ```
 
 </td>
@@ -118,7 +119,7 @@ curl -fsSL https://raw.githubusercontent.com/aelune/kondo/main/install.sh | bash
 
 ### Windows
 ```bash
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aelune/kondo/main/install.ps1" -OutFile "install.ps1"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aelune/tyr/main/install.ps1" -OutFile "install.ps1"
 .\install.ps1
 ```
 
@@ -127,8 +128,8 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aelune/kondo/main/inst
 
 ### Manual
 ```bash
-git clone https://github.com/Aelune/kondo.git
-cd kondo
+git clone https://github.com/Aelune/tyr.git
+cd tyr
 make install
 ```
 
@@ -154,13 +155,13 @@ make install
 
 ```bash
 # Organize current directory
-kondo
+tyr
 
 # Organize specific directory
-kondo ~/Downloads
+tyr ~/Downloads
 
 # Organize any path
-kondo /path/to/folder
+tyr /path/to/folder
 ```
 
 </td>
@@ -195,7 +196,7 @@ kondo /path/to/folder
 │  └── data.xlsx                                                 │
 └────────────────────────────────────────────────────────────────┘
                                ↓
-                    kondo ~/Downloads
+                    tyr ~/Downloads
                                ↓
 ┌────────────────────────────────────────────────────────────────┐
 │                    AFTER (Category Mode)                       │
@@ -241,7 +242,7 @@ kondo /path/to/folder
 
 <div align="center">
 
-**Configuration File:** `~/.config/kondo/kondo.toml`
+**Configuration File:** `~/.config/tyr/tyr.toml`
 
 </div>
 
@@ -619,7 +620,7 @@ Contributions are welcome! We especially appreciate help with:
 <table>
 <tr>
 <th>Feature</th>
-<th>Kondo</th>
+<th>Tyr</th>
 <th>Traditional Organizers</th>
 </tr>
 <tr>
@@ -668,9 +669,9 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 **Made with Rust**
 
-[![Star on GitHub](https://img.shields.io/github/stars/Aelune/kondo?style=social)](https://github.com/Aelune/kondo)
-[![Fork on GitHub](https://img.shields.io/github/forks/Aelune/kondo?style=social)](https://github.com/Aelune/kondo/fork)
+[![Star on GitHub](https://img.shields.io/github/stars/Aelune/tyr?style=social)](https://github.com/Aelune/tyr)
+[![Fork on GitHub](https://img.shields.io/github/forks/Aelune/tyr?style=social)](https://github.com/Aelune/tyr/fork)
 
-[⬆ back to top](#kondo)
+[⬆ back to top](#tyr)
 
 </div>

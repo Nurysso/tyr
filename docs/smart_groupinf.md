@@ -349,7 +349,7 @@ Even with smart grouping enabled:
 
 ## 🎓 Real-World Success Stories
 
-### Before Kondo (Typical Downloads Folder)
+### Before Tyr (Typical Downloads Folder)
 ```
 Downloads/ (327 files, chaos)
 ├── project_final_FINAL_v3_REAL.pdf
@@ -361,7 +361,7 @@ Downloads/ (327 files, chaos)
 └── ... 321 more files
 ```
 
-### After Kondo with Smart Grouping
+### After Tyr with Smart Grouping
 ```
 Downloads/
 ├── project_final/ (3 files)
@@ -389,15 +389,15 @@ touch random.txt
 
 # 3. Run dry run
 # Not yet implemented dry run
-kondo -d .
+tyr -d .
 # Press 'd' for dry run
 
 # 4. Review groups
 # Adjust config if needed
-nano ~/.config/kondo/kondo.toml
+nano ~/.config/tyr/tyr.toml
 
 # 5. Try again
-kondo
+tyr
 ```
 
 ---
@@ -418,7 +418,7 @@ Smart grouping transforms file organization from **type-based** to **relationshi
 
 ```bash
 # Enable now:
-nano ~/.config/kondo/kondo.toml
+nano ~/.config/tyr/tyr.toml
 # Set: enable_smart_grouping = true
-kondo ~/Downloads
+tyr ~/Downloads
 ```

@@ -539,7 +539,7 @@ pub fn organize_by_similarity(
 
     // Prepare skip folder if needed
     let skip_folder = if move_skipped {
-        let skip_dir = base_path.join("kondo-skip");
+        let skip_dir = base_path.join("tyr-skip");
         if !skip_dir.exists() {
             match fs::create_dir(&skip_dir) {
                 Ok(_) => {
@@ -907,7 +907,7 @@ impl FilenameTuiApp {
             .split(f.size());
 
         // Title
-        let title = Paragraph::new(" Kondo - Filename Similarity Organizer")
+        let title = Paragraph::new(" Tyr - Filename Similarity Organizer")
             .style(
                 Style::default()
                     .fg(Color::Cyan)
@@ -1087,7 +1087,7 @@ impl FilenameTuiApp {
 
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::raw(" Move skipped files to 'kondo-skip' folder: "),
+            Span::raw(" Move skipped files to 'tyr-skip' folder: "),
             Span::styled(
                 if self.move_skipped_to_folder {
                     "YES ✓"
@@ -1275,7 +1275,7 @@ impl FilenameTuiApp {
     /// Auto-organize files without UI interaction
     /// Automatically analyzes (press 'a') then organizes (press 's')
     pub fn auto_organize(&mut self) -> io::Result<()> {
-        // println!("🔍 Analyzing files...");
+        // println!("Analyzing files...");
 
         // Step 1: Analyze files (equivalent to pressing 'a')
         self.analyze_files()?;
@@ -1293,7 +1293,7 @@ impl FilenameTuiApp {
 
             // Show preview of groups
             // if grouped_count > 0 {
-            //     println!("\n📁 Preview of file groups:");
+            //     println!("\Preview of file groups:");
             //     let multi_file_groups: Vec<_> = self.groups.iter()
             //         .filter(|g| g.files.len() > 1)
             //         .collect();
@@ -1324,7 +1324,7 @@ impl FilenameTuiApp {
             //     }
             // }
 
-            // println!("\n📂 Starting organization...");
+            // println!("\nStarting organization...");
         }
 
         // Step 2: Start organization (equivalent to pressing 's')
@@ -1340,7 +1340,7 @@ impl FilenameTuiApp {
 
             // Show skipped files summary
             if !result.skipped_details.is_empty() {
-                println!("\n⚠️  Skipped Files:");
+                println!("\n[!]  Skipped Files:");
 
                 let single_files = result.skipped_details.iter()
                     .filter(|s| matches!(s.reason, SkipReason::SingleFile))
@@ -1380,7 +1380,7 @@ impl FilenameTuiApp {
 
             // Show errors if any
             if !result.errors.is_empty() {
-                println!("\n❌ Errors:");
+                println!("\nx Errors:");
                 for (i, error) in result.errors.iter().enumerate().take(3) {
                     println!("   {}. {}", i + 1, error);
                 }
