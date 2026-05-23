@@ -916,7 +916,7 @@ fn main() {
             process::exit(1);
         }
         "-v" | "--version" => {
-            println!("0.4.4");
+            println!("0.4.5");
             println!(
                 "Tyr  Copyright (C) 2026  Dawood Khan
 This program comes with ABSOLUTELY NO WARRANTY.
