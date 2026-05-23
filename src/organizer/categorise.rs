@@ -1,4 +1,12 @@
-// organize files based on extension
+//  Copyright (C) 2026 Dawood Khan
+//  SPDX-License-Identifier: GPL-3.0-or-later
+
+// Maintainer Dawood (Nurysso) contact - nurysso [at] proton.me
+
+/*
+ * This file is responsible for executing category(file extension) based file organazing for
+ * tyr(https:github.com/Nurysso/tyr) project
+*/
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -119,7 +127,6 @@ fn create_default_categories() -> HashMap<String, CategoryConfig> {
 
     map
 }
-
 
 // Config Loading
 
@@ -439,8 +446,6 @@ impl FileOrganizer {
 
 // TUI Implementation
 
-
-
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -756,7 +761,6 @@ impl TuiApp {
     /// Auto-organize files without UI interaction
     /// Automatically starts organization (equivalent to pressing 's')
     pub fn auto_organize(&mut self) -> io::Result<()> {
-
         // Start organization (non-dry-run mode)
         self.start_organization(false)?;
 
@@ -793,18 +797,6 @@ impl TuiApp {
 
             // Show recent logs
             let _logs = self.organizer.get_logger().get_logs();
-            // if !logs.is_empty() {
-                // println!("\n Recent activity:");
-                // for log in logs.iter().rev().take(5) {
-                //     let icon = match log.level {
-                //         LogLevel::Success => "✓",
-                //         LogLevel::Error => "✗",
-                //         LogLevel::Warning => "⚠",
-                //         LogLevel::Info => "ℹ",
-                //     };
-                //     println!("   {} {}", icon, log.message);
-                // }
-            // }
         }
 
         Ok(())

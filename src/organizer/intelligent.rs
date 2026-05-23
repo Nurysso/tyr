@@ -1,10 +1,12 @@
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::io::{self, stdout};
-use std::time::Duration;
-use regex::Regex;
-use rayon::prelude::*;
+//  Copyright (C) 2026 Dawood Khan
+//  SPDX-License-Identifier: GPL-3.0-or-later
+
+// Maintainer Dawood (Nurysso) contact - nurysso [at] proton.me
+
+/*
+ * This file is responsible for executing intelligent file organazing for
+ * tyr(https:github.com/Nurysso/tyr) project
+*/
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -18,7 +20,13 @@ use ratatui::{
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
     Terminal,
 };
-
+use rayon::prelude::*;
+use regex::Regex;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::{self, stdout};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Configuration for intelligent grouping
 #[derive(Debug, Clone)]
@@ -179,7 +187,8 @@ fn extract_features(
         .into_iter()
         .map(|(path, content)| {
             let filename_vector = extract_filename_features(&path);
-            let content_vector = if let (Some(ref model), Some(ref text)) = (&tfidf_model, &content) {
+            let content_vector = if let (Some(ref model), Some(ref text)) = (&tfidf_model, &content)
+            {
                 Some(compute_tfidf_vector(text, model))
             } else {
                 None
@@ -200,11 +209,10 @@ fn extract_features(
 /// Check if file is likely a text file based on extension
 fn is_text_file(path: &Path) -> bool {
     let text_extensions = [
-        "txt", "md", "rs", "py", "js", "ts", "jsx", "tsx", "html", "css",
-        "json", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf",
-        "c", "cpp", "h", "hpp", "java", "go", "php", "rb", "swift",
-        "kt", "scala", "sh", "bat", "ps1", "r", "lua", "vim", "sql",
-        "csv", "log", "tex", "rtf",
+        "txt", "md", "rs", "py", "js", "ts", "jsx", "tsx", "html", "css", "json", "xml", "yaml",
+        "yml", "toml", "ini", "cfg", "conf", "c", "cpp", "h", "hpp", "java", "go", "php", "rb",
+        "swift", "kt", "scala", "sh", "bat", "ps1", "r", "lua", "vim", "sql", "csv", "log", "tex",
+        "rtf",
     ];
 
     if let Some(ext) = path.extension() {
@@ -353,11 +361,7 @@ fn compute_tfidf_vector(text: &str, model: &TfIdfModel) -> Vec<f64> {
     }
 
     // Apply IDF
-    let tfidf: Vec<f64> = tf
-        .iter()
-        .zip(&model.idf)
-        .map(|(t, i)| t * i)
-        .collect();
+    let tfidf: Vec<f64> = tf.iter().zip(&model.idf).map(|(t, i)| t * i).collect();
 
     tfidf
 }
@@ -437,6 +441,8 @@ fn determine_k(vectors: &[Vec<f64>], config: &IntelligentConfig) -> usize {
 }
 
 /// K-means clustering algorithm
+/// refer this page to learn more about K-means:
+///  https://www.ibm.com/think/topics/k-means-clustering
 fn kmeans(vectors: &[Vec<f64>], k: usize, max_iterations: usize) -> Vec<usize> {
     let n = vectors.len();
     if n == 0 || k == 0 {
@@ -444,26 +450,40 @@ fn kmeans(vectors: &[Vec<f64>], k: usize, max_iterations: usize) -> Vec<usize> {
     }
 
     let dim = vectors[0].len();
+    // Guard: all vectors must share the same dimension
+    assert!(
+        vectors.iter().all(|v| v.len() == dim),
+        "All vectors must have the same dimension (expected {})",
+        dim
+    );
+    // Guard: cant have more clusters than points
+    let k = k.min(n);
 
     // Initialize centroids randomly (use first k points)
     let mut centroids: Vec<Vec<f64>> = vectors.iter().take(k).cloned().collect();
-    let mut assignments = vec![0; n];
+    let mut assignments = vec![0usize; n]; // needs to change
 
     for _ in 0..max_iterations {
         let mut changed = false;
 
         // Assignment step
         for (i, vector) in vectors.iter().enumerate() {
-            let mut min_dist = f64::MAX;
-            let mut best_cluster = 0;
+            // let mut min_dist = f64::MAX;
+            let mut best_cluster = centroids
+                .iter()
+                .enumerate()
+                .map(|(j, c)| (j, euclidean_distance(vector, c)))
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .map(|(j, _)| j)
+                .unwrap_or(0);
 
-            for (j, centroid) in centroids.iter().enumerate() {
-                let dist = euclidean_distance(vector, centroid);
-                if dist < min_dist {
-                    min_dist = dist;
-                    best_cluster = j;
-                }
-            }
+            // for (j, centroid) in centroids.iter().enumerate() {
+            //     let dist = euclidean_distance(vector, centroid);
+            //     if dist < min_dist {
+            //         min_dist = dist;
+            //         best_cluster = j;
+            //     }
+            // }
 
             if assignments[i] != best_cluster {
                 assignments[i] = best_cluster;
@@ -475,15 +495,19 @@ fn kmeans(vectors: &[Vec<f64>], k: usize, max_iterations: usize) -> Vec<usize> {
             break;
         }
 
-        // Update step
-        let mut new_centroids = vec![vec![0.0; dim]; k];
-        let mut counts = vec![0; k];
+        // Update step: only iterate up to 'dim' to stay in bounds
+        let mut new_centroids = vec![vec![0.0_f64; dim]; k];
+        let mut counts = vec![0usize; k];
 
         for (i, vector) in vectors.iter().enumerate() {
             let cluster = assignments[i];
             counts[cluster] += 1;
-            for (j, &val) in vector.iter().enumerate() {
-                new_centroids[cluster][j] += val;
+            // for (j, &val) in vector.iter().enumerate() {
+            //     new_centroids[cluster][j] += val;
+            // }
+            for j in 0..dim {
+                // bounded by dim, not vector.len()
+                new_centroids[cluster][j] += vector[j];
             }
         }
 
@@ -492,6 +516,9 @@ fn kmeans(vectors: &[Vec<f64>], k: usize, max_iterations: usize) -> Vec<usize> {
                 for val in &mut new_centroids[cluster] {
                     *val /= *count as f64;
                 }
+            } else {
+                // keep the old centroid if a cluster becomes empty
+                new_centroids[cluster] = centroids[cluster].clone();
             }
         }
 
@@ -544,10 +571,7 @@ fn generate_name_from_files(files: &[PathBuf]) -> String {
     // Extract all filenames
     let filenames: Vec<String> = files
         .iter()
-        .filter_map(|p| {
-            p.file_stem()
-                .map(|s| s.to_string_lossy().to_lowercase())
-        })
+        .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()))
         .collect();
 
     // Find common prefix
@@ -951,13 +975,19 @@ impl IntelligentTuiApp {
             Line::from(" All Files:"),
             Line::from("     • Extracts filename patterns and features"),
             Line::from("     • Uses K-means clustering algorithm"),
-            Line::from(format!("     • Creates up to {} intelligent groups", self.config.max_clusters)),
+            Line::from(format!(
+                "     • Creates up to {} intelligent groups",
+                self.config.max_clusters
+            )),
             Line::from("     • Generates meaningful group names"),
             Line::from(""),
             Line::from(vec![
                 Span::raw("  Weights: Filename "),
                 Span::styled(
-                    format!("{}%", (self.config.filename_similarity_weight * 100.0) as u8),
+                    format!(
+                        "{}%",
+                        (self.config.filename_similarity_weight * 100.0) as u8
+                    ),
                     Style::default().fg(Color::Cyan),
                 ),
                 Span::raw(" | Content "),
@@ -969,7 +999,9 @@ impl IntelligentTuiApp {
             Line::from(""),
             Line::from(Span::styled(
                 " Press 's' to start intelligent analysis",
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
             )),
         ];
 
@@ -998,12 +1030,10 @@ impl IntelligentTuiApp {
         f.render_widget(gauge, chunks[0]);
 
         // Current step
-        let step_text = vec![
-            Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Yellow)),
-                Span::raw(&self.progress_message),
-            ]),
-        ];
+        let step_text = vec![Line::from(vec![
+            Span::styled("", Style::default().fg(Color::Yellow)),
+            Span::raw(&self.progress_message),
+        ])];
         let step_widget = Paragraph::new(step_text).block(
             Block::default()
                 .borders(Borders::ALL)
@@ -1019,8 +1049,7 @@ impl IntelligentTuiApp {
             Line::from("   • Size of text files"),
             Line::from("   • Complexity of filename patterns"),
         ];
-        let info_widget =
-            Paragraph::new(info_text).block(Block::default().borders(Borders::ALL));
+        let info_widget = Paragraph::new(info_text).block(Block::default().borders(Borders::ALL));
         f.render_widget(info_widget, chunks[2]);
     }
 
@@ -1067,7 +1096,7 @@ impl IntelligentTuiApp {
         let mut sorted_groups: Vec<_> = result.groups.iter().collect();
         sorted_groups.sort_by(|a, b| b.files.len().cmp(&a.files.len()));
 
-                        for (_i, group) in sorted_groups.iter().enumerate().take(12) {
+        for (_i, group) in sorted_groups.iter().enumerate().take(12) {
             // let icon = get_group_icon(&group.suggested_name);
 
             // Truncate long names
@@ -1079,10 +1108,7 @@ impl IntelligentTuiApp {
 
             lines.push(Line::from(vec![
                 // Span::raw(format!("  {} ", icon)),
-                Span::styled(
-                    format!("{:28}", name),
-                    Style::default().fg(Color::Cyan),
-                ),
+                Span::styled(format!("{:28}", name), Style::default().fg(Color::Cyan)),
                 Span::raw(" → "),
                 Span::styled(
                     format!("{} files", group.files.len()),
@@ -1112,13 +1138,18 @@ impl IntelligentTuiApp {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 " Preview:",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )));
             for msg in self.log_messages.iter().take(5) {
                 lines.push(Line::from(format!("   {}", msg)));
             }
             if self.log_messages.len() > 5 {
-                lines.push(Line::from(format!("   ... and {} more operations", self.log_messages.len() - 5)));
+                lines.push(Line::from(format!(
+                    "   ... and {} more operations",
+                    self.log_messages.len() - 5
+                )));
             }
         }
 
@@ -1196,102 +1227,105 @@ impl IntelligentTuiApp {
         f.render_widget(widget, area);
     }
 
-fn draw_info_panel(&self, f: &mut ratatui::Frame, area: Rect) {
-    let info = match &self.state {
-        AppState::Ready => vec![
-            ListItem::new(Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Yellow)),
-                Span::raw("Intelligent grouping uses ML to find patterns"),
-            ])),
-            ListItem::new(Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Green)),
-                Span::raw("Faster and smarter than manual organization"),
-            ])),
-            ListItem::new(Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Cyan)),
-                Span::raw("Groups files by both name and content similarity"),
-            ])),
-        ],
-        AppState::Analyzing => vec![
-            ListItem::new(Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Magenta)),
-                Span::raw("Building TF-IDF vectors from file content..."),
-            ])),
-            ListItem::new(Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Cyan)),
-                Span::raw("Extracting filename features and patterns..."),
-            ])),
-            ListItem::new(Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Green)),
-                Span::raw("Running K-means clustering algorithm..."),
-            ])),
-        ],
-        AppState::Complete(result) => {
-            let total_files: usize = result.groups.iter().map(|g| g.files.len()).sum();
-            let avg_group_size = if !result.groups.is_empty() {
-                total_files / result.groups.len()
-            } else {
-                0
-            };
-
-            vec![
+    fn draw_info_panel(&self, f: &mut ratatui::Frame, area: Rect) {
+        let info = match &self.state {
+            AppState::Ready => vec![
                 ListItem::new(Line::from(vec![
-                    Span::styled("✓ ", Style::default().fg(Color::Green)),
-                    Span::raw(format!(
-                        "Successfully grouped {} files into {} categories",
-                        total_files,
-                        result.groups.len()
-                    )),
+                    Span::styled("", Style::default().fg(Color::Yellow)),
+                    Span::raw("Intelligent grouping uses ML to find patterns"),
                 ])),
-                ListItem::new(Line::from(vec![
-                    Span::styled("", Style::default().fg(Color::Cyan)),
-                    Span::raw(format!("Average group size: {} files", avg_group_size)),
-                ])),
-                ListItem::new(Line::from(vec![
-                    Span::styled("", Style::default().fg(Color::Magenta)),
-                    Span::raw("Smart group names generated from file patterns"),
-                ])),
-            ]
-        }
-        AppState::Moving => vec![
-            ListItem::new(Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Yellow)),
-                Span::raw("Creating directories for each group..."),
-            ])),
-            ListItem::new(Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Cyan)),
-                Span::raw("Moving files to their designated groups..."),
-            ])),
-            ListItem::new(Line::from(vec![
-                Span::styled("", Style::default().fg(Color::Green)),
-                Span::raw("Handling conflicts and organizing structure..."),
-            ])),
-        ],
-        AppState::Moved(log) => {
-            vec![
                 ListItem::new(Line::from(vec![
                     Span::styled("", Style::default().fg(Color::Green)),
-                    Span::raw(format!("All {} operations completed successfully", log.len())),
+                    Span::raw("Faster and smarter than manual organization"),
                 ])),
                 ListItem::new(Line::from(vec![
                     Span::styled("", Style::default().fg(Color::Cyan)),
-                    Span::raw("Files organized into categorized directories"),
+                    Span::raw("Groups files by both name and content similarity"),
                 ])),
+            ],
+            AppState::Analyzing => vec![
                 ListItem::new(Line::from(vec![
                     Span::styled("", Style::default().fg(Color::Magenta)),
-                    Span::raw("Your files are now perfectly organized!"),
+                    Span::raw("Building TF-IDF vectors from file content..."),
                 ])),
-            ]
-        }
-    };
+                ListItem::new(Line::from(vec![
+                    Span::styled("", Style::default().fg(Color::Cyan)),
+                    Span::raw("Extracting filename features and patterns..."),
+                ])),
+                ListItem::new(Line::from(vec![
+                    Span::styled("", Style::default().fg(Color::Green)),
+                    Span::raw("Running K-means clustering algorithm..."),
+                ])),
+            ],
+            AppState::Complete(result) => {
+                let total_files: usize = result.groups.iter().map(|g| g.files.len()).sum();
+                let avg_group_size = if !result.groups.is_empty() {
+                    total_files / result.groups.len()
+                } else {
+                    0
+                };
 
-    let list = List::new(info).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Information "),
-    );
-    f.render_widget(list, area);
-}
+                vec![
+                    ListItem::new(Line::from(vec![
+                        Span::styled("✓ ", Style::default().fg(Color::Green)),
+                        Span::raw(format!(
+                            "Successfully grouped {} files into {} categories",
+                            total_files,
+                            result.groups.len()
+                        )),
+                    ])),
+                    ListItem::new(Line::from(vec![
+                        Span::styled("", Style::default().fg(Color::Cyan)),
+                        Span::raw(format!("Average group size: {} files", avg_group_size)),
+                    ])),
+                    ListItem::new(Line::from(vec![
+                        Span::styled("", Style::default().fg(Color::Magenta)),
+                        Span::raw("Smart group names generated from file patterns"),
+                    ])),
+                ]
+            }
+            AppState::Moving => vec![
+                ListItem::new(Line::from(vec![
+                    Span::styled("", Style::default().fg(Color::Yellow)),
+                    Span::raw("Creating directories for each group..."),
+                ])),
+                ListItem::new(Line::from(vec![
+                    Span::styled("", Style::default().fg(Color::Cyan)),
+                    Span::raw("Moving files to their designated groups..."),
+                ])),
+                ListItem::new(Line::from(vec![
+                    Span::styled("", Style::default().fg(Color::Green)),
+                    Span::raw("Handling conflicts and organizing structure..."),
+                ])),
+            ],
+            AppState::Moved(log) => {
+                vec![
+                    ListItem::new(Line::from(vec![
+                        Span::styled("", Style::default().fg(Color::Green)),
+                        Span::raw(format!(
+                            "All {} operations completed successfully",
+                            log.len()
+                        )),
+                    ])),
+                    ListItem::new(Line::from(vec![
+                        Span::styled("", Style::default().fg(Color::Cyan)),
+                        Span::raw("Files organized into categorized directories"),
+                    ])),
+                    ListItem::new(Line::from(vec![
+                        Span::styled("", Style::default().fg(Color::Magenta)),
+                        Span::raw("Your files are now perfectly organized!"),
+                    ])),
+                ]
+            }
+        };
+
+        let list = List::new(info).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Information "),
+        );
+        f.render_widget(list, area);
+    }
 
     fn draw_controls(&self, f: &mut ratatui::Frame, area: Rect) {
         let controls = match &self.state {
@@ -1311,7 +1345,8 @@ fn draw_info_panel(&self, f: &mut ratatui::Frame, area: Rect) {
     /// Auto-analyze files without UI interaction
     pub fn auto_analyze(&mut self) -> io::Result<()> {
         // Redirect output to log instead of stdout
-        self.log_messages.push("Starting intelligent ML-based analysis...".to_string());
+        self.log_messages
+            .push("Starting intelligent ML-based analysis...".to_string());
 
         // Start analysis
         self.start_analysis()?;
@@ -1320,13 +1355,19 @@ fn draw_info_panel(&self, f: &mut ratatui::Frame, area: Rect) {
         if let AppState::Complete(result) = &self.state {
             let total_files: usize = result.groups.iter().map(|g| g.files.len()).sum();
 
-            self.log_messages.push("\n✦ Analysis Complete! \n".to_string());
+            self.log_messages
+                .push("\n✦ Analysis Complete! \n".to_string());
             self.log_messages.push("Summary:".to_string());
-            self.log_messages.push(format!("   • Total files analyzed: {}", total_files));
-            self.log_messages.push(format!("   • Groups created:       {}", result.groups.len()));
+            self.log_messages
+                .push(format!("   • Total files analyzed: {}", total_files));
+            self.log_messages.push(format!(
+                "   • Groups created:       {}",
+                result.groups.len()
+            ));
 
             if !result.groups.is_empty() {
-                self.log_messages.push("\n Discovered Groups:\n".to_string());
+                self.log_messages
+                    .push("\n Discovered Groups:\n".to_string());
 
                 // Sort groups by file count
                 let mut sorted_groups: Vec<_> = result.groups.iter().collect();
@@ -1345,7 +1386,8 @@ fn draw_info_panel(&self, f: &mut ratatui::Frame, area: Rect) {
                 // Calculate statistics
                 let avg_group_size = total_files / result.groups.len();
                 self.log_messages.push("\n Statistics:".to_string());
-                self.log_messages.push(format!("   • Average group size: {} files", avg_group_size));
+                self.log_messages
+                    .push(format!("   • Average group size: {} files", avg_group_size));
                 self.log_messages.push(format!(
                     "   • Largest group:      {} files ({})",
                     sorted_groups[0].files.len(),

@@ -1,3 +1,21 @@
+/*
+ * Tyr - ML-Powered, Blazingly Fast File Organizer with a Beautiful TUI.
+ * Copyright (C) 2026  Dawood Khan (Nurysso)
+ *
+ * Contact Maintainer Nurysso [@] proton.me
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 use chrono::Local;
 use serde::Deserialize;
 use std::env;
@@ -13,7 +31,7 @@ use organizer::intelligent::{IntelligentConfig, IntelligentTuiApp};
 
 /// Main configuration structure that includes all settings
 #[derive(Debug, Clone, Deserialize)]
-pub struct KondoConfig {
+pub struct tyrConfig {
     #[serde(default)]
     pub log_file: Option<String>,
 
@@ -75,20 +93,44 @@ pub struct IntelligentConfigToml {
 }
 
 // Default functions for serde - Similarity Config
-fn default_levenshtein_threshold() -> f64 { 0.7 }
-fn default_jaccard_threshold() -> f64 { 0.5 }
-fn default_levenshtein_weight() -> f64 { 0.6 }
-fn default_jaccard_weight() -> f64 { 0.4 }
-fn default_min_similarity_score() -> f64 { 0.65 }
+fn default_levenshtein_threshold() -> f64 {
+    0.7
+}
+fn default_jaccard_threshold() -> f64 {
+    0.5
+}
+fn default_levenshtein_weight() -> f64 {
+    0.6
+}
+fn default_jaccard_weight() -> f64 {
+    0.4
+}
+fn default_min_similarity_score() -> f64 {
+    0.65
+}
 
 // Default functions for serde - Intelligent Config
-fn default_max_lines_to_read() -> usize { 100 }
-fn default_min_cluster_size() -> usize { 2 }
-fn default_max_clusters() -> usize { 20 }
-fn default_filename_similarity_weight() -> f64 { 0.3 }
-fn default_content_similarity_weight() -> f64 { 0.7 }
-fn default_similarity_threshold() -> f64 { 0.65 }
-fn default_max_iterations() -> usize { 100 }
+fn default_max_lines_to_read() -> usize {
+    100
+}
+fn default_min_cluster_size() -> usize {
+    2
+}
+fn default_max_clusters() -> usize {
+    20
+}
+fn default_filename_similarity_weight() -> f64 {
+    0.3
+}
+fn default_content_similarity_weight() -> f64 {
+    0.7
+}
+fn default_similarity_threshold() -> f64 {
+    0.65
+}
+fn default_max_iterations() -> usize {
+    100
+}
 
 impl Default for SimilarityConfigToml {
     fn default() -> Self {
@@ -116,7 +158,7 @@ impl Default for IntelligentConfigToml {
     }
 }
 
-impl Default for KondoConfig {
+impl Default for tyrConfig {
     fn default() -> Self {
         Self {
             log_file: None,
@@ -198,12 +240,12 @@ fn get_default_log_path() -> std::io::Result<PathBuf> {
 }
 
 /// Load configuration from tyr.toml or create default
-fn load_kondo_config() -> KondoConfig {
+fn load_tyr_config() -> tyrConfig {
     let config_path = match get_config_path() {
         Ok(path) => path,
         Err(e) => {
             eprintln!("Warning: Could not determine config path: {}", e);
-            return KondoConfig::default();
+            return tyrConfig::default();
         }
     };
 
@@ -211,7 +253,7 @@ fn load_kondo_config() -> KondoConfig {
         // Try to read and parse config using proper TOML deserialization
         match fs::read_to_string(&config_path) {
             Ok(content) => {
-                match toml::from_str::<KondoConfig>(&content) {
+                match toml::from_str::<tyrConfig>(&content) {
                     Ok(mut config) => {
                         // Convert relative log path to absolute if needed
                         if let Some(ref log_file) = config.log_file {
@@ -220,7 +262,9 @@ fn load_kondo_config() -> KondoConfig {
                                 // If it's a relative path, make it absolute relative to config dir
                                 if log_path.is_relative() {
                                     if let Ok(config_dir) = get_config_dir() {
-                                        config.log_file = Some(config_dir.join(log_path).to_string_lossy().to_string());
+                                        config.log_file = Some(
+                                            config_dir.join(log_path).to_string_lossy().to_string(),
+                                        );
                                     }
                                 }
                             } else {
@@ -247,14 +291,12 @@ fn load_kondo_config() -> KondoConfig {
             Ok(path) => path,
             Err(e) => {
                 eprintln!("Warning: Could not determine log path: {}", e);
-                return KondoConfig::default();
+                return tyrConfig::default();
             }
         };
 
         // Convert path to string with forward slashes for cross-platform TOML compatibility
-        let log_path_str = default_log_path
-            .to_string_lossy()
-            .replace('\\', "/");
+        let log_path_str = default_log_path.to_string_lossy().replace('\\', "/");
 
         let config_content = format!(
             r#"# Tyr File Organizer Configuration
@@ -408,7 +450,7 @@ folder_name = "Design Files"
             println!("✓ Created default config at: {}", config_path.display());
         }
 
-        return KondoConfig {
+        return tyrConfig {
             log_file: Some(log_path_str),
             enable_smart_grouping: false,
             enable_intelligent_grouping: false,
@@ -417,7 +459,7 @@ folder_name = "Design Files"
         };
     }
 
-    KondoConfig::default()
+    tyrConfig::default()
 }
 
 /// Log a message to the configured log file
@@ -434,37 +476,49 @@ fn log_to_file(log_path: &Option<String>, message: &str) {
 }
 
 fn print_help() {
-    println!("╔═══════════════════════════════════════════════════╗");
-    println!("║                                                   ║");
-    println!("║   ██╗  ██╗ ██████╗ ███╗   ██╗██████╗  ██████╗     ║");
-    println!("║   ██║ ██╔╝██╔═══██╗████╗  ██║██╔══██╗██╔═══██╗    ║");
-    println!("║   █████╔╝ ██║   ██║██╔██╗ ██║██║  ██║██║   ██║    ║");
-    println!("║   ██╔═██╗ ██║   ██║██║╚██╗██║██║  ██║██║   ██║    ║");
-    println!("║   ██║  ██╗╚██████╔╝██║ ╚████║██████╔╝╚██████╔╝    ║");
-    println!("║   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═════╝  ╚═════╝     ║");
-    println!("║    ML-Powered • Blazingly Fast • Beautiful TUI    ║");
-    println!("║                                                   ║");
-    println!("╚═══════════════════════════════════════════════════╝");
+    println!("TTTTTTTTTTTTTTTTTTTTTTTYYYYYYY       YYYYYYYRRRRRRRRRRRRRRRRR");
+    println!("T:::::::::::::::::::::TY:::::Y       Y:::::YR::::::::::::::::R");
+    println!("T:::::::::::::::::::::TY:::::Y       Y:::::YR::::::RRRRRR:::::R");
+    println!("T:::::TT:::::::TT:::::TY::::::Y     Y::::::YRR:::::R     R:::::R");
+    println!("TTTTTT  T:::::T  TTTTTTYYY:::::Y   Y:::::YYY  R::::R     R:::::R");
+    println!("        T:::::T           Y:::::Y Y:::::Y     R::::R     R:::::R");
+    println!("        T:::::T            Y:::::Y:::::Y      R::::RRRRRR:::::R ");
+    println!("        T:::::T             Y:::::::::Y       R:::::::::::::RR  ");
+    println!("        T:::::T              Y:::::::Y        R::::RRRRRR:::::R ");
+    println!("        T:::::T               Y:::::Y         R::::R     R:::::R");
+    println!("        T:::::T               Y:::::Y         R::::R     R:::::R");
+    println!("        T:::::T               Y:::::Y         R::::R     R:::::R");
+    println!("      TT:::::::TT             Y:::::Y       RR:::::R     R:::::R");
+    println!("      T:::::::::T          YYYY:::::YYYY    R::::::R     R:::::R");
+    println!("      T:::::::::T          Y:::::::::::Y    R::::::R     R:::::R");
+    println!("      TTTTTTTTTTT          YYYYYYYYYYYYY    RRRRRRRR     RRRRRRR");
+    println!("    ML-Powered • Blazingly Fast • Beautiful TUI    ");
     println!("USAGE:");
     println!("    tyr [OPTIONS] [DIRECTORY]");
     println!("\nOPTIONS:");
     println!("    -v, --version    Shows version duh!)");
-    println!("    -c, --categorize    Organize files by category (images, videos, documents, etc.)");
+    println!(
+        "    -c, --categorize    Organize files by category (images, videos, documents, etc.)"
+    );
     println!("    -f, --filename      Group similar files based on filename patterns");
     println!("    -i, --intelligent   Use ML-based clustering with TF-IDF content analysis");
     println!("    -nui, --no-ui       Skip UI and automatically organize files");
     println!("    -h, --help          Show this help message");
 }
 
-fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: bool) -> std::io::Result<()> {
+fn run_categorize_mode(
+    target_dir: PathBuf,
+    tyr_config: &tyrConfig,
+    no_ui: bool,
+) -> std::io::Result<()> {
     let config_path = get_config_path()?;
 
     log_to_file(
-        &kondo_config.log_file,
+        &tyr_config.log_file,
         &format!("=== Starting Tyr (Categorize Mode - No UI: {}) ===", no_ui),
     );
     log_to_file(
-        &kondo_config.log_file,
+        &tyr_config.log_file,
         &format!("Target directory: {}", target_dir.display()),
     );
 
@@ -474,14 +528,14 @@ fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: b
     let config = if config_path.exists() {
         match FileOrganizerConfig::load_from_file(&config_path) {
             Ok(cfg) => {
-                log_to_file(&kondo_config.log_file, "Config loaded successfully");
+                log_to_file(&tyr_config.log_file, "Config loaded successfully");
                 cfg
             }
             Err(e) => {
                 eprintln!("!  Failed to load config: {}", e);
                 println!("Using default configuration...");
                 log_to_file(
-                    &kondo_config.log_file,
+                    &tyr_config.log_file,
                     &format!("Failed to load config: {}", e),
                 );
                 FileOrganizerConfig::default()
@@ -494,13 +548,13 @@ fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: b
         if let Err(e) = default_config.save_to_file(&config_path) {
             eprintln!("! Could not save default config: {}", e);
             log_to_file(
-                &kondo_config.log_file,
+                &tyr_config.log_file,
                 &format!("Could not save default config: {}", e),
             );
         } else {
             println!("✓ Default config created at: {}", config_path.display());
             println!("   Edit this file to customize categories!");
-            log_to_file(&kondo_config.log_file, "Created default config");
+            log_to_file(&tyr_config.log_file, "Created default config");
         }
 
         default_config
@@ -518,15 +572,12 @@ fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: b
     // Log completion
     match &result {
         Ok(_) => {
-            log_to_file(
-                &kondo_config.log_file,
-                "Organization completed successfully",
-            );
+            log_to_file(&tyr_config.log_file, "Organization completed successfully");
             println!("\n✦ File organization complete!");
         }
         Err(e) => {
             log_to_file(
-                &kondo_config.log_file,
+                &tyr_config.log_file,
                 &format!("Error during organization: {}", e),
             );
         }
@@ -535,24 +586,32 @@ fn run_categorize_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: b
     result
 }
 
-fn run_filename_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: bool) -> std::io::Result<()> {
+fn run_filename_mode(
+    target_dir: PathBuf,
+    tyr_config: &tyrConfig,
+    no_ui: bool,
+) -> std::io::Result<()> {
     log_to_file(
-        &kondo_config.log_file,
-        &format!("=== Starting Tyr (Filename Similarity Mode - No UI: {}) ===", no_ui),
+        &tyr_config.log_file,
+        &format!(
+            "=== Starting Tyr (Filename Similarity Mode - No UI: {}) ===",
+            no_ui
+        ),
     );
     log_to_file(
-        &kondo_config.log_file,
+        &tyr_config.log_file,
         &format!("Target directory: {}", target_dir.display()),
     );
 
     println!("Tyr - Filename Similarity Mode");
 
     // Load similarity config from tyr.toml
-    let similarity_config: SimilarityConfig = kondo_config.similarity_config.clone().into();
+    let similarity_config: SimilarityConfig = tyr_config.similarity_config.clone().into();
 
     log_to_file(
-        &kondo_config.log_file,
-        &format!("Using similarity config: min_score={:.2}, lev_weight={:.2}, jac_weight={:.2}",
+        &tyr_config.log_file,
+        &format!(
+            "Using similarity config: min_score={:.2}, lev_weight={:.2}, jac_weight={:.2}",
             similarity_config.min_similarity_score,
             similarity_config.levenshtein_weight,
             similarity_config.jaccard_weight
@@ -569,25 +628,22 @@ fn run_filename_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: boo
     };
 
     // Get logs from the app and write them to file
-    if kondo_config.log_file.is_some() {
+    if tyr_config.log_file.is_some() {
         let logs = app.get_logs();
         for log_msg in logs {
-            log_to_file(&kondo_config.log_file, &log_msg);
+            log_to_file(&tyr_config.log_file, &log_msg);
         }
     }
 
     // Log completion
     match &result {
         Ok(_) => {
-            log_to_file(
-                &kondo_config.log_file,
-                "Organization completed successfully",
-            );
+            log_to_file(&tyr_config.log_file, "Organization completed successfully");
             println!("\n✦ File organization complete!");
         }
         Err(e) => {
             log_to_file(
-                &kondo_config.log_file,
+                &tyr_config.log_file,
                 &format!("Error during organization: {}", e),
             );
         }
@@ -596,23 +652,30 @@ fn run_filename_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: boo
     result
 }
 
-fn run_intelligent_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: bool) -> std::io::Result<()> {
+fn run_intelligent_mode(
+    target_dir: PathBuf,
+    tyr_config: &tyrConfig,
+    no_ui: bool,
+) -> std::io::Result<()> {
     log_to_file(
-        &kondo_config.log_file,
-        &format!("=== Starting Tyr (Intelligent ML Mode - No UI: {}) ===", no_ui),
+        &tyr_config.log_file,
+        &format!(
+            "=== Starting Tyr (Intelligent ML Mode - No UI: {}) ===",
+            no_ui
+        ),
     );
     log_to_file(
-        &kondo_config.log_file,
+        &tyr_config.log_file,
         &format!("Target directory: {}", target_dir.display()),
     );
 
     println!("Tyr - Intelligent ML Mode");
 
     // Load intelligent config from tyr.toml
-    let intelligent_config: IntelligentConfig = kondo_config.intelligent_config.clone().into();
+    let intelligent_config: IntelligentConfig = tyr_config.intelligent_config.clone().into();
 
     log_to_file(
-        &kondo_config.log_file,
+        &tyr_config.log_file,
         &format!(
             "Using intelligent config: max_clusters={}, min_cluster_size={}, filename_weight={:.2}, content_weight={:.2}",
             intelligent_config.max_clusters,
@@ -625,24 +688,20 @@ fn run_intelligent_mode(target_dir: PathBuf, kondo_config: &KondoConfig, no_ui: 
     // Launch TUI or auto-analyze
     let mut app = IntelligentTuiApp::new(intelligent_config, target_dir);
 
-    let result = if no_ui {
-        app.auto_analyze()
-    } else {
-        app.run()
-    };
+    let result = if no_ui { app.auto_analyze() } else { app.run() };
 
     // Log completion
     match &result {
         Ok(_) => {
             log_to_file(
-                &kondo_config.log_file,
+                &tyr_config.log_file,
                 "Intelligent analysis completed successfully",
             );
             println!("\n✦ Intelligent analysis complete!");
         }
         Err(e) => {
             log_to_file(
-                &kondo_config.log_file,
+                &tyr_config.log_file,
                 &format!("Error during intelligent analysis: {}", e),
             );
         }
@@ -655,7 +714,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     // Load configuration
-    let kondo_config = load_kondo_config();
+    let tyr_config = load_tyr_config();
 
     // No arguments - show help
     if args.len() < 2 {
@@ -693,7 +752,7 @@ fn main() {
                         Err(e) => {
                             eprintln!("✗ Error: Could not get current directory: {}", e);
                             log_to_file(
-                                &kondo_config.log_file,
+                                &tyr_config.log_file,
                                 &format!("Error: Could not get current directory: {}", e),
                             );
                             process::exit(1);
@@ -706,7 +765,7 @@ fn main() {
                     Err(e) => {
                         eprintln!("✗ Error: Could not get current directory: {}", e);
                         log_to_file(
-                            &kondo_config.log_file,
+                            &tyr_config.log_file,
                             &format!("Error: Could not get current directory: {}", e),
                         );
                         process::exit(1);
@@ -720,15 +779,15 @@ fn main() {
                     target_dir.display()
                 );
                 log_to_file(
-                    &kondo_config.log_file,
+                    &tyr_config.log_file,
                     &format!("Error: Directory does not exist: {}", target_dir.display()),
                 );
                 process::exit(1);
             }
 
-            if let Err(e) = run_categorize_mode(target_dir, &kondo_config, no_ui) {
+            if let Err(e) = run_categorize_mode(target_dir, &tyr_config, no_ui) {
                 eprintln!("✗ Error: {}", e);
-                log_to_file(&kondo_config.log_file, &format!("Fatal error: {}", e));
+                log_to_file(&tyr_config.log_file, &format!("Fatal error: {}", e));
                 process::exit(1);
             }
         }
@@ -751,7 +810,7 @@ fn main() {
                         Err(e) => {
                             eprintln!("✗ Error: Could not get current directory: {}", e);
                             log_to_file(
-                                &kondo_config.log_file,
+                                &tyr_config.log_file,
                                 &format!("Error: Could not get current directory: {}", e),
                             );
                             process::exit(1);
@@ -764,7 +823,7 @@ fn main() {
                     Err(e) => {
                         eprintln!("✗ Error: Could not get current directory: {}", e);
                         log_to_file(
-                            &kondo_config.log_file,
+                            &tyr_config.log_file,
                             &format!("Error: Could not get current directory: {}", e),
                         );
                         process::exit(1);
@@ -778,15 +837,15 @@ fn main() {
                     target_dir.display()
                 );
                 log_to_file(
-                    &kondo_config.log_file,
+                    &tyr_config.log_file,
                     &format!("Error: Directory does not exist: {}", target_dir.display()),
                 );
                 process::exit(1);
             }
 
-            if let Err(e) = run_filename_mode(target_dir, &kondo_config, no_ui) {
+            if let Err(e) = run_filename_mode(target_dir, &tyr_config, no_ui) {
                 eprintln!("✗ Error: {}", e);
-                log_to_file(&kondo_config.log_file, &format!("Fatal error: {}", e));
+                log_to_file(&tyr_config.log_file, &format!("Fatal error: {}", e));
                 process::exit(1);
             }
         }
@@ -809,7 +868,7 @@ fn main() {
                         Err(e) => {
                             eprintln!("✗ Error: Could not get current directory: {}", e);
                             log_to_file(
-                                &kondo_config.log_file,
+                                &tyr_config.log_file,
                                 &format!("Error: Could not get current directory: {}", e),
                             );
                             process::exit(1);
@@ -822,7 +881,7 @@ fn main() {
                     Err(e) => {
                         eprintln!("✗ Error: Could not get current directory: {}", e);
                         log_to_file(
-                            &kondo_config.log_file,
+                            &tyr_config.log_file,
                             &format!("Error: Could not get current directory: {}", e),
                         );
                         process::exit(1);
@@ -836,15 +895,15 @@ fn main() {
                     target_dir.display()
                 );
                 log_to_file(
-                    &kondo_config.log_file,
+                    &tyr_config.log_file,
                     &format!("Error: Directory does not exist: {}", target_dir.display()),
                 );
                 process::exit(1);
             }
 
-            if let Err(e) = run_intelligent_mode(target_dir, &kondo_config, no_ui) {
+            if let Err(e) = run_intelligent_mode(target_dir, &tyr_config, no_ui) {
                 eprintln!("✗ Error: {}", e);
-                log_to_file(&kondo_config.log_file, &format!("Fatal error: {}", e));
+                log_to_file(&tyr_config.log_file, &format!("Fatal error: {}", e));
                 process::exit(1);
             }
         }
@@ -856,20 +915,25 @@ fn main() {
             eprintln!("  tyr -i -nui /path/to/folder");
             process::exit(1);
         }
-        "-v" | "--version" =>{
+        "-v" | "--version" => {
             println!("0.4.4");
-
+            println!(
+                "Tyr  Copyright (C) 2026  Dawood Khan
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions. See the LICENSE file for details."
+            )
         }
         _ => {
             eprintln!("✗ Error: Unknown option '{}'", mode);
             eprintln!("\nRun 'tyr --help' for usage information");
             log_to_file(
-                &kondo_config.log_file,
+                &tyr_config.log_file,
                 &format!("Error: Unknown option '{}'", mode),
             );
             process::exit(1);
         }
     }
 
-    log_to_file(&kondo_config.log_file, "=== Tyr session ended ===\n");
+    log_to_file(&tyr_config.log_file, "=== Tyr session ended ===\n");
 }

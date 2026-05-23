@@ -1,4 +1,13 @@
-// Advanced filename operations with ML-based similarity detection and file organization
+//  Copyright (C) 2026 Dawood Khan
+//  SPDX-License-Identifier: GPL-3.0-or-later
+
+// Maintainer Dawood (Nurysso) contact - nurysso [at] proton.me
+
+/*
+ * This file is responsible for executing filename based organazing for
+ * tyr(https:github.com/Nurysso/tyr) project
+*/
+
 use std::collections::HashSet;
 use std::fs;
 use std::io;
@@ -155,7 +164,10 @@ fn tokenize_filename(filename: &str) -> HashSet<String> {
     let mut tokens = HashSet::new();
 
     // Remove extension if present
-    let name = filename.rsplit_once('.').map(|(n, _)| n).unwrap_or(filename);
+    let name = filename
+        .rsplit_once('.')
+        .map(|(n, _)| n)
+        .unwrap_or(filename);
     let name_lower = name.to_lowercase();
 
     // First, add the full name without delimiters as a token (helps with phrases)
@@ -1342,13 +1354,19 @@ impl FilenameTuiApp {
             if !result.skipped_details.is_empty() {
                 println!("\n[!]  Skipped Files:");
 
-                let single_files = result.skipped_details.iter()
+                let single_files = result
+                    .skipped_details
+                    .iter()
                     .filter(|s| matches!(s.reason, SkipReason::SingleFile))
                     .count();
-                let system_files = result.skipped_details.iter()
+                let system_files = result
+                    .skipped_details
+                    .iter()
                     .filter(|s| matches!(s.reason, SkipReason::SystemFile))
                     .count();
-                let already_organized = result.skipped_details.iter()
+                let already_organized = result
+                    .skipped_details
+                    .iter()
                     .filter(|s| matches!(s.reason, SkipReason::AlreadyOrganized))
                     .count();
 
