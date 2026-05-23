@@ -1,5 +1,5 @@
 # Tyr Installer for Windows
-# Usage: irm https://raw.githubusercontent.com/aelune/tyr/main/install.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/nurysso/tyr/main/install.ps1 | iex
 # script by claude
 param(
     [string]$Version = "latest"
@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$REPO = "aelune/tyr"
+$REPO = "nurysso/tyr"
 $BINARY_NAME = "tyr"
 $INSTALL_DIR = "$env:LOCALAPPDATA\Programs\tyr"
 $CONFIG_DIR = "$env:APPDATA\tyr"
