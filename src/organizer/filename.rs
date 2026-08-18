@@ -3,19 +3,60 @@
 
 // Maintainer Dawood (Nurysso) contact - nurysso [at] proton.me
 
-/*
- * This file is responsible for executing filename based organazing for
- * tyr(https:github.com/Nurysso/tyr) project
-*/
+//  Filename based similarity organizer for tyr (https://github.com/Nurysso/tyr).
 
+use ratatui::crossterm::event::KeyCode;
+use ratatui::style::Color;
+use ratatui::{layout::Constraint, layout::Rect, text::Line, Frame};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Checks if a file should be skipped based on common system file patterns
-pub fn should_skip_file(filename: &str) -> bool {
-    let skip_patterns = [
+use crate::organizer::tui::{self, App, Flow, Job, Progress};
+use crate::organizer::utils::{is_hidden, LazyDirManager};
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SimilarityConfig {
+    #[serde(default = "default_levenshtein_threshold")]
+    pub levenshtein_threshold: f64,
+    #[serde(default = "default_jaccard_threshold")]
+    pub jaccard_threshold: f64,
+    #[serde(default = "default_levenshtein_weight")]
+    pub levenshtein_weight: f64,
+    #[serde(default = "default_jaccard_weight")]
+    pub jaccard_weight: f64,
+    #[serde(default = "default_min_similarity_score")]
+    pub min_similarity_score: f64,
+
+    #[serde(default = "default_skip_patterns")]
+    pub skip_patterns: Vec<String>,
+    #[serde(default = "default_true")]
+    pub skip_hidden_files: bool,
+}
+
+fn default_levenshtein_threshold() -> f64 {
+    0.7
+}
+fn default_jaccard_threshold() -> f64 {
+    0.5
+}
+fn default_levenshtein_weight() -> f64 {
+    0.6
+}
+fn default_jaccard_weight() -> f64 {
+    0.4
+}
+fn default_min_similarity_score() -> f64 {
+    0.65
+}
+fn default_true() -> bool {
+    true
+}
+
+fn default_skip_patterns() -> Vec<String> {
+    [
         ".DS_Store",
         "Thumbs.db",
         ".git",
@@ -23,48 +64,30 @@ pub fn should_skip_file(filename: &str) -> bool {
         "desktop.ini",
         ".localized",
         "~$",
-    ];
-
-    skip_patterns
-        .iter()
-        .any(|pattern| filename.contains(pattern))
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
 }
 
-// ML-Based Similarity Detection
-
-/// Configuration for similarity detection
-#[derive(Debug, Clone)]
-pub struct SimilarityConfig {
-    #[allow(dead_code)]
-    /// Threshold for Levenshtein similarity (0.0 to 1.0)
-    pub levenshtein_threshold: f64,
-    #[allow(dead_code)]
-    /// Threshold for Jaccard similarity (0.0 to 1.0)
-    pub jaccard_threshold: f64,
-
-    /// Weight for Levenshtein distance (0.0 to 1.0)
-    pub levenshtein_weight: f64,
-
-    /// Weight for Jaccard similarity (0.0 to 1.0)
-    pub jaccard_weight: f64,
-
-    /// Minimum similarity score to consider files related (0.0 to 1.0)
-    pub min_similarity_score: f64,
+pub fn should_skip_file(filename: &str, skip_patterns: &[String]) -> bool {
+    skip_patterns.iter().any(|p| filename.contains(p.as_str()))
 }
 
 impl Default for SimilarityConfig {
     fn default() -> Self {
         Self {
-            levenshtein_threshold: 0.7,
-            jaccard_threshold: 0.5,
-            levenshtein_weight: 0.6,
-            jaccard_weight: 0.4,
-            min_similarity_score: 0.65,
+            levenshtein_threshold: default_levenshtein_threshold(),
+            jaccard_threshold: default_jaccard_threshold(),
+            levenshtein_weight: default_levenshtein_weight(),
+            jaccard_weight: default_jaccard_weight(),
+            min_similarity_score: default_min_similarity_score(),
+            skip_patterns: default_skip_patterns(),
+            skip_hidden_files: true,
         }
     }
 }
 
-/// Represents a group of similar files
 #[derive(Debug, Clone)]
 pub struct FileGroup {
     pub representative_name: String,
@@ -72,8 +95,7 @@ pub struct FileGroup {
     pub avg_similarity: f64,
 }
 
-/// Result of organizing files by similarity
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct OrganizeResult {
     pub files_moved: usize,
     pub folders_created: usize,
@@ -82,7 +104,6 @@ pub struct OrganizeResult {
     pub errors: Vec<String>,
 }
 
-/// Information about a skipped file
 #[derive(Debug, Clone)]
 pub struct SkippedFile {
     pub filename: String,
@@ -91,17 +112,26 @@ pub struct SkippedFile {
 
 #[derive(Debug, Clone)]
 pub enum SkipReason {
-    SingleFile,       // Only one file in its group
-    SystemFile,       // System file pattern detected
-    AlreadyOrganized, // Already in a subfolder
+    SingleFile,
+    SystemFile,
+    #[allow(dead_code)]
+    AlreadyOrganized,
 }
 
-/// Calculates Levenshtein distance between two strings
-/// This measures the minimum number of single-character edits needed
-pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
-    let len1 = s1.chars().count();
-    let len2 = s2.chars().count();
+impl SkipReason {
+    fn label(&self) -> &'static str {
+        match self {
+            SkipReason::SingleFile => "no similar matches found",
+            SkipReason::SystemFile => "system file",
+            SkipReason::AlreadyOrganized => "already organized",
+        }
+    }
+}
 
+/// Minimum single-character edits to turn `s1` into `s2`.
+pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (s1.chars().collect(), s2.chars().collect());
+    let (len1, len2) = (a.len(), b.len());
     if len1 == 0 {
         return len2;
     }
@@ -109,201 +139,139 @@ pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
         return len1;
     }
 
-    let mut matrix = vec![vec![0; len2 + 1]; len1 + 1];
-
-    // Initialize first row and column
-    for i in 0..=len1 {
-        matrix[i][0] = i;
+    let mut matrix = vec![vec![0usize; len2 + 1]; len1 + 1];
+    for (i, row) in matrix.iter_mut().enumerate() {
+        row[0] = i;
     }
     for j in 0..=len2 {
         matrix[0][j] = j;
     }
 
-    let s1_chars: Vec<char> = s1.chars().collect();
-    let s2_chars: Vec<char> = s2.chars().collect();
-
-    // Fill the matrix
     for i in 1..=len1 {
         for j in 1..=len2 {
-            let cost = if s1_chars[i - 1] == s2_chars[j - 1] {
-                0
-            } else {
-                1
-            };
-
-            matrix[i][j] = *[
-                matrix[i - 1][j] + 1,        // deletion
-                matrix[i][j - 1] + 1,        // insertion
-                matrix[i - 1][j - 1] + cost, // substitution
-            ]
-            .iter()
-            .min()
-            .unwrap();
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            matrix[i][j] = (matrix[i - 1][j] + 1)
+                .min(matrix[i][j - 1] + 1)
+                .min(matrix[i - 1][j - 1] + cost);
         }
     }
-
     matrix[len1][len2]
 }
 
-/// Calculates normalized Levenshtein similarity (0.0 to 1.0)
-/// Higher values mean more similar
 pub fn levenshtein_similarity(s1: &str, s2: &str) -> f64 {
-    let distance = levenshtein_distance(s1, s2);
     let max_len = s1.len().max(s2.len()) as f64;
-
     if max_len == 0.0 {
         return 1.0;
     }
-
-    1.0 - (distance as f64 / max_len)
+    1.0 - (levenshtein_distance(s1, s2) as f64 / max_len)
 }
 
-/// Tokenizes a filename into meaningful parts - IMPROVED VERSION
-/// Now preserves meaningful phrases and handles common patterns better
+const PHRASES: [&str; 10] = [
+    "whatsapp chat",
+    "whatsapp chats",
+    "whatsapp image",
+    "screenshot",
+    "screen shot",
+    "chatgpt",
+    "img_",
+    "photo",
+    "picture",
+    "document",
+];
+const DELIMITERS: [char; 9] = ['-', '_', '.', '(', ')', '[', ']', '{', '}'];
+
+fn push_token(tokens: &mut HashSet<String>, raw: &str) {
+    let lower = raw.to_lowercase();
+    if lower.len() > 1 && !lower.chars().all(|c| c.is_numeric()) {
+        tokens.insert(lower);
+    }
+}
+
+/// Tokenizes a filename into words, phrase hints and bigrams for fuzzy
+/// matching (e.g. "IMG_2024_beach.jpg" and "IMG_2024_beach(1).jpg" overlap).
 fn tokenize_filename(filename: &str) -> HashSet<String> {
     let mut tokens = HashSet::new();
-
-    // Remove extension if present
     let name = filename
         .rsplit_once('.')
         .map(|(n, _)| n)
         .unwrap_or(filename);
     let name_lower = name.to_lowercase();
 
-    // First, add the full name without delimiters as a token (helps with phrases)
-    let clean_full = name_lower
+    let clean_full: String = name_lower
         .chars()
         .filter(|c| c.is_alphanumeric() || c.is_whitespace())
-        .collect::<String>();
-
+        .collect();
     if !clean_full.trim().is_empty() {
         tokens.insert(clean_full.trim().to_string());
     }
 
-    // Extract common phrases that should stay together
-    let phrases = [
-        "whatsapp chat",
-        "whatsapp chats",
-        "whatsapp image",
-        "screenshot",
-        "screen shot",
-        "chatgpt",
-        "img_",
-        "photo",
-        "picture",
-        "document",
-        "download",
-    ];
-
-    for phrase in &phrases {
-        if name_lower.contains(phrase) {
-            tokens.insert(phrase.to_string());
-        }
+    for phrase in PHRASES.iter().filter(|p| name_lower.contains(*p)) {
+        tokens.insert(phrase.to_string());
     }
 
-    // Now tokenize individual words
-    let delimiters = ['-', '_', '.', '(', ')', '[', ']', '{', '}'];
-    let mut current_token = String::new();
-
+    let mut current = String::new();
     for c in name.chars() {
-        if delimiters.contains(&c) {
-            if !current_token.is_empty() {
-                let token_lower = current_token.to_lowercase();
-                if token_lower.len() > 1 && !token_lower.chars().all(|c| c.is_numeric()) {
-                    tokens.insert(token_lower);
-                }
-                current_token.clear();
-            }
-        } else if c == ' ' {
-            // For spaces, we want to preserve word boundaries but also create word tokens
-            if !current_token.is_empty() {
-                let token_lower = current_token.to_lowercase();
-                if token_lower.len() > 1 && !token_lower.chars().all(|c| c.is_numeric()) {
-                    tokens.insert(token_lower);
-                }
-                current_token.clear();
+        if DELIMITERS.contains(&c) || c == ' ' {
+            if !current.is_empty() {
+                push_token(&mut tokens, &current);
+                current.clear();
             }
         } else {
-            current_token.push(c);
+            current.push(c);
         }
     }
-
-    if !current_token.is_empty() {
-        let token_lower = current_token.to_lowercase();
-        if token_lower.len() > 1 && !token_lower.chars().all(|c| c.is_numeric()) {
-            tokens.insert(token_lower);
-        }
+    if !current.is_empty() {
+        push_token(&mut tokens, &current);
     }
 
-    // Also extract bigrams (two-word combinations) for better matching
     let words: Vec<String> = name
         .split(|c: char| !c.is_alphanumeric() && c != ' ')
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.to_lowercase())
         .collect();
-
     for window in words.windows(2) {
-        let bigram = format!("{} {}", window[0], window[1]);
-        tokens.insert(bigram);
+        tokens.insert(format!("{} {}", window[0], window[1]));
     }
 
     tokens
 }
 
-/// Calculates Jaccard similarity between two strings based on token sets
-/// This measures overlap of words/tokens in the filenames
 pub fn jaccard_similarity(s1: &str, s2: &str) -> f64 {
-    let tokens1 = tokenize_filename(s1);
-    let tokens2 = tokenize_filename(s2);
-
-    if tokens1.is_empty() && tokens2.is_empty() {
+    let (t1, t2) = (tokenize_filename(s1), tokenize_filename(s2));
+    if t1.is_empty() && t2.is_empty() {
         return 1.0;
     }
-
-    let intersection: HashSet<_> = tokens1.intersection(&tokens2).collect();
-    let union: HashSet<_> = tokens1.union(&tokens2).collect();
-
-    if union.is_empty() {
+    let union = t1.union(&t2).count();
+    if union == 0 {
         return 0.0;
     }
-
-    intersection.len() as f64 / union.len() as f64
+    t1.intersection(&t2).count() as f64 / union as f64
 }
 
-/// Calculates combined similarity score using both metrics
 pub fn combined_similarity(s1: &str, s2: &str, config: &SimilarityConfig) -> f64 {
-    let lev_sim = levenshtein_similarity(s1, s2);
-    let jac_sim = jaccard_similarity(s1, s2);
-
-    (lev_sim * config.levenshtein_weight) + (jac_sim * config.jaccard_weight)
+    levenshtein_similarity(s1, s2) * config.levenshtein_weight
+        + jaccard_similarity(s1, s2) * config.jaccard_weight
 }
 
-/// Groups similar files together using clustering
+/// Greedily clusters filenames: each unassigned file seeds a group, then
+/// pulls in every remaining file scoring above `min_similarity_score`.
 pub fn group_similar_files(filenames: &[String], config: &SimilarityConfig) -> Vec<FileGroup> {
-    if filenames.is_empty() {
-        return Vec::new();
-    }
-
-    let mut groups: Vec<FileGroup> = Vec::new();
+    let mut groups = Vec::new();
     let mut assigned: HashSet<usize> = HashSet::new();
 
     for i in 0..filenames.len() {
         if assigned.contains(&i) {
             continue;
         }
-
+        assigned.insert(i);
         let mut group_files = vec![filenames[i].clone()];
         let mut similarities = Vec::new();
-        assigned.insert(i);
 
-        // Find all files similar to this one
         for j in (i + 1)..filenames.len() {
             if assigned.contains(&j) {
                 continue;
             }
-
             let similarity = combined_similarity(&filenames[i], &filenames[j], config);
-
             if similarity >= config.min_similarity_score {
                 group_files.push(filenames[j].clone());
                 similarities.push(similarity);
@@ -316,57 +284,42 @@ pub fn group_similar_files(filenames: &[String], config: &SimilarityConfig) -> V
         } else {
             similarities.iter().sum::<f64>() / similarities.len() as f64
         };
-
         groups.push(FileGroup {
             representative_name: extract_common_prefix(&group_files),
             files: group_files,
             avg_similarity,
         });
     }
-
     groups
 }
 
-/// Extracts common prefix from a group of filenames
 fn extract_common_prefix(filenames: &[String]) -> String {
-    if filenames.is_empty() {
+    let Some(first) = filenames.first() else {
         return String::new();
-    }
-
+    };
     if filenames.len() == 1 {
-        return filenames[0].clone();
+        return first.clone();
     }
 
-    let first = &filenames[0];
-    let mut prefix = String::new();
+    let prefix: String = first
+        .chars()
+        .enumerate()
+        .take_while(|(i, c)| filenames.iter().all(|f| f.chars().nth(*i) == Some(*c)))
+        .map(|(_, c)| c)
+        .collect();
 
-    for (i, c) in first.chars().enumerate() {
-        let all_match = filenames.iter().all(|f| f.chars().nth(i) == Some(c));
-
-        if all_match {
-            prefix.push(c);
-        } else {
-            break;
-        }
-    }
-
-    // Clean up the prefix (remove trailing delimiters)
     prefix
-        .trim_end_matches(['-', '_', ' ', '.', '(', '[', '{'].as_ref())
+        .trim_end_matches(['-', '_', ' ', '.', '(', '[', '{'])
         .to_string()
 }
 
-/// Suggests a smart, memorable folder name for a group of similar files
 pub fn suggest_folder_name(group: &FileGroup) -> String {
     let name = if group.representative_name.is_empty() {
         "SimilarFiles"
     } else {
         &group.representative_name
     };
-
-    // Apply smart naming rules
     let cleaned = smart_folder_naming(name);
-
     if cleaned.is_empty() {
         "SimilarFiles".to_string()
     } else {
@@ -374,77 +327,45 @@ pub fn suggest_folder_name(group: &FileGroup) -> String {
     }
 }
 
-/// Applies intelligent naming rules to create memorable folder names
+const NAME_PATTERNS: [(&str, &str); 17] = [
+    ("whatsapp chat", "WhatsAppChats"),
+    ("whatsapp image", "WhatsAppImages"),
+    ("whatsapp", "WhatsApp"),
+    ("screenshot", "Screenshots"),
+    ("screen shot", "Screenshots"),
+    ("screencapture", "Screenshots"),
+    ("chatgpt", "ChatGPTImages"),
+    ("document", "Documents"),
+    ("report", "Reports"),
+    ("invoice", "Invoices"),
+    ("receipt", "Receipts"),
+    ("img_", "Images"),
+    ("dsc", "CameraPhotos"),
+    ("dcim", "CameraPhotos"),
+    ("photo", "Photos"),
+    ("pic", "Pictures"),
+    ("download", "Downloads"),
+];
+
+/// Maps a raw common-prefix into a memorable folder name: known patterns
+/// (WhatsApp, screenshots, ...) win outright, otherwise dates/versions/
+/// numeric suffixes are stripped from the prefix and it's title-cased.
 fn smart_folder_naming(name: &str) -> String {
     let lower = name.to_lowercase();
-
-    // Pattern-based naming rules
-    let patterns = [
-        // WhatsApp
-        ("whatsapp chat", "WhatsAppChats"),
-        ("whatsapp image", "WhatsAppImages"),
-        ("whatsapp", "WhatsApp"),
-        // Screenshots
-        ("screenshot", "Screenshots"),
-        ("screen shot", "Screenshots"),
-        ("screencapture", "Screenshots"),
-        // ChatGPT images
-        ("chatgpt", "ChatGPTImages"),
-        // Common document patterns
-        ("document", "Documents"),
-        ("report", "Reports"),
-        ("invoice", "Invoices"),
-        ("receipt", "Receipts"),
-        // Image types
-        ("img_", "Images"),
-        ("dsc", "CameraPhotos"),
-        ("dcim", "CameraPhotos"),
-        ("photo", "Photos"),
-        ("pic", "Pictures"),
-        // Videos
-        ("vid_", "Videos"),
-        ("video", "Videos"),
-        ("mov_", "Videos"),
-        // Downloads
-        ("download", "Downloads"),
-        // Archives
-        ("backup", "Backups"),
-        ("archive", "Archives"),
-    ];
-
-    // Check patterns
-    for (pattern, replacement) in &patterns {
-        if lower.contains(pattern) {
-            return replacement.to_string();
-        }
+    if let Some((_, replacement)) = NAME_PATTERNS.iter().find(|(p, _)| lower.contains(p)) {
+        return replacement.to_string();
     }
 
-    // Extract meaningful base name
-    let mut result = name
+    let joined: String = name
         .split(|c: char| !c.is_alphanumeric() && c != ' ')
         .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("");
+        .collect();
+    let mut result =
+        remove_number_suffixes(&remove_version_patterns(&remove_date_patterns(&joined)));
 
-    // Remove dates (YYYY-MM-DD, YYYY_MM_DD, etc.)
-    result = remove_date_patterns(&result);
-
-    // Remove version numbers (v1, v2, etc.)
-    result = remove_version_patterns(&result);
-
-    // Remove numbered suffixes like (1), (2), _1, _2
-    result = remove_number_suffixes(&result);
-
-    // Capitalize first letter and format
-    if !result.is_empty() {
-        let mut chars = result.chars();
-        result = match chars.next() {
-            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            None => result,
-        };
+    if let Some(first) = result.chars().next() {
+        result = first.to_uppercase().collect::<String>() + &result[first.len_utf8()..];
     }
-
-    // Ensure it's a valid folder name (Windows and Unix compatible)
     result
         .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "")
         .trim()
@@ -452,14 +373,11 @@ fn smart_folder_naming(name: &str) -> String {
 }
 
 fn remove_date_patterns(s: &str) -> String {
-    let mut cleaned = String::new();
     let chars: Vec<char> = s.chars().collect();
+    let mut cleaned = String::new();
     let mut i = 0;
-
     while i < chars.len() {
-        // Check for date-like patterns (4 digits followed by more digits)
         if i + 7 < chars.len() && chars[i..i + 4].iter().all(|c| c.is_numeric()) {
-            // Skip potential date
             i += 8;
             while i < chars.len() && (chars[i].is_numeric() || chars[i] == '-' || chars[i] == '_') {
                 i += 1;
@@ -469,46 +387,153 @@ fn remove_date_patterns(s: &str) -> String {
             i += 1;
         }
     }
-
     cleaned
 }
 
 fn remove_version_patterns(s: &str) -> String {
-    let mut result = s.to_string();
-
-    // Remove patterns like "_v1", "-v2", "v3"
-    if let Some(pos) = result.rfind("v") {
-        if pos > 0 {
-            let after = &result[pos + 1..];
-            if after
-                .chars()
-                .all(|c| c.is_numeric() || c == '.' || c == '_' || c == '-')
-            {
-                result = result[..pos].to_string();
-            }
-        }
+    let Some(pos) = s.rfind('v').filter(|p| *p > 0) else {
+        return s.to_string();
+    };
+    let after = &s[pos + 1..];
+    if after
+        .chars()
+        .all(|c| c.is_numeric() || c == '.' || c == '_' || c == '-')
+    {
+        s[..pos].to_string()
+    } else {
+        s.to_string()
     }
-
-    result
 }
 
 fn remove_number_suffixes(s: &str) -> String {
     let mut result = s.to_string();
-
-    // Remove trailing numbers and delimiters
-    while !result.is_empty() {
-        let last = result.chars().last().unwrap();
-        if last.is_numeric() || last == '_' || last == '-' || last == ' ' {
-            result.pop();
-        } else {
-            break;
-        }
+    while matches!(result.chars().last(), Some(c) if c.is_numeric() || c == '_' || c == '-' || c == ' ')
+    {
+        result.pop();
     }
-
     result
 }
 
-/// Organizes files by similarity, moving them into appropriate folders
+fn handle_naming_conflict(path: &Path) -> io::Result<PathBuf> {
+    let parent = path.parent().unwrap();
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{e}"))
+        .unwrap_or_default();
+
+    (1..1000)
+        .map(|i| parent.join(format!("{stem}_{i}{ext}")))
+        .find(|p| !p.exists())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "Could not find available filename",
+            )
+        })
+}
+
+fn prepare_skip_folder(
+    base_path: &Path,
+    enabled: bool,
+    dir_manager: &LazyDirManager,
+    logger: &mut dyn FnMut(&str),
+    errors: &mut Vec<String>,
+) -> Option<PathBuf> {
+    if !enabled {
+        return None;
+    }
+    let skip_dir = base_path.join("tyr-skip");
+    match dir_manager.ensure_dir_exists(&skip_dir) {
+        Ok(_) => {
+            logger(&format!("Skip folder ready: {}", skip_dir.display()));
+            Some(skip_dir)
+        }
+        Err(e) => {
+            errors.push(format!("Failed to create skip folder: {e}"));
+            None
+        }
+    }
+}
+
+fn skip_group(
+    files: &[String],
+    skip_folder: Option<&PathBuf>,
+    base_path: &Path,
+    skip_patterns: &[String],
+    logger: &mut dyn FnMut(&str),
+    errors: &mut Vec<String>,
+) -> Vec<SkippedFile> {
+    files
+        .iter()
+        .map(|filename| {
+            let reason = if should_skip_file(filename, skip_patterns) {
+                SkipReason::SystemFile
+            } else {
+                SkipReason::SingleFile
+            };
+            logger(&format!("Skipped {}: {}", reason.label(), filename));
+            if let Some(skip_dir) = skip_folder {
+                let (source, dest) = (base_path.join(filename), skip_dir.join(filename));
+                match fs::rename(&source, &dest) {
+                    Ok(_) => logger(&format!("Moved to skip folder: {filename}")),
+                    Err(e) => {
+                        errors.push(format!("Failed to move '{filename}' to skip folder: {e}"))
+                    }
+                }
+            }
+            SkippedFile {
+                filename: filename.clone(),
+                reason,
+            }
+        })
+        .collect()
+}
+
+fn move_group(
+    group: &FileGroup,
+    base_path: &Path,
+    dir_manager: &LazyDirManager,
+    logger: &mut dyn FnMut(&str),
+    errors: &mut Vec<String>,
+) -> (usize, usize) {
+    let folder_name = suggest_folder_name(group);
+    let target_dir = base_path.join(&folder_name);
+    let was_known = dir_manager.is_known(&*target_dir);
+    if let Err(e) = dir_manager.ensure_dir_exists(&target_dir) {
+        errors.push(format!("Failed to create folder '{folder_name}': {e}"));
+        return (0, 0);
+    }
+    let created_folders = usize::from(!was_known);
+    if created_folders == 1 {
+        logger(&format!("Created folder: {folder_name}"));
+    }
+    let mut moved = 0;
+    for filename in &group.files {
+        let (source, dest) = (base_path.join(filename), target_dir.join(filename));
+        let final_dest = if dest.exists() {
+            match handle_naming_conflict(&dest) {
+                Ok(p) => p,
+                Err(e) => {
+                    errors.push(format!("Naming conflict for '{filename}': {e}"));
+                    continue;
+                }
+            }
+        } else {
+            dest
+        };
+        match fs::rename(&source, &final_dest) {
+            Ok(_) => {
+                moved += 1;
+                logger(&format!("Moved: {filename} -> {folder_name}"));
+            }
+            Err(e) => errors.push(format!("Failed to move '{filename}': {e}")),
+        }
+    }
+    (moved, created_folders)
+}
+
 pub fn organize_by_similarity(
     base_path: &Path,
     config: &SimilarityConfig,
@@ -520,194 +545,64 @@ pub fn organize_by_similarity(
         base_path.display()
     ));
 
-    // Read all files
     let entries: Vec<_> = fs::read_dir(base_path)?
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
+        .filter(|e| {
+            let p = e.path();
+            p.is_file() && !(config.skip_hidden_files && is_hidden(&p))
+        })
         .collect();
-
-    logger(&format!("Found {} files to process", entries.len()));
-
     let filenames: Vec<String> = entries
         .iter()
         .filter_map(|e| {
             e.path()
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map(|s| s.to_string())
+                .map(String::from)
         })
         .collect();
+    logger(&format!("Found {} files to process", filenames.len()));
 
-    // Group files
     logger("Analyzing file similarities...");
     let groups = group_similar_files(&filenames, config);
     logger(&format!("Identified {} file groups", groups.len()));
 
-    let mut files_moved = 0;
-    let mut folders_created = 0;
-    let mut files_skipped = 0;
-    let mut skipped_details = Vec::new();
-    let mut errors = Vec::new();
+    let mut result = OrganizeResult::default();
+    let dir_manager = LazyDirManager::new();
+    let skip_folder = prepare_skip_folder(
+        base_path,
+        move_skipped,
+        &dir_manager,
+        logger,
+        &mut result.errors,
+    );
 
-    // Prepare skip folder if needed
-    let skip_folder = if move_skipped {
-        let skip_dir = base_path.join("tyr-skip");
-        if !skip_dir.exists() {
-            match fs::create_dir(&skip_dir) {
-                Ok(_) => {
-                    logger(&format!("Created skip folder: {}", skip_dir.display()));
-                    Some(skip_dir)
-                }
-                Err(e) => {
-                    let err_msg = format!("Failed to create skip folder: {}", e);
-                    logger(&err_msg);
-                    errors.push(err_msg);
-                    None
-                }
-            }
-        } else {
-            Some(skip_dir)
-        }
-    } else {
-        None
-    };
-
-    // Process each group
     for group in groups {
-        // Handle single files
         if group.files.len() < 2 {
-            for filename in &group.files {
-                // Check if it's a system file
-                if should_skip_file(filename) {
-                    skipped_details.push(SkippedFile {
-                        filename: filename.clone(),
-                        reason: SkipReason::SystemFile,
-                    });
-                    logger(&format!("Skipped system file: {}", filename));
-                } else {
-                    skipped_details.push(SkippedFile {
-                        filename: filename.clone(),
-                        reason: SkipReason::SingleFile,
-                    });
-                    logger(&format!("Skipped single file: {}", filename));
-                }
-                files_skipped += 1;
-
-                // Move to skip folder if enabled
-                if let Some(ref skip_dir) = skip_folder {
-                    let source = base_path.join(filename);
-                    let dest = skip_dir.join(filename);
-
-                    if let Err(e) = fs::rename(&source, &dest) {
-                        let err_msg =
-                            format!("Failed to move '{}' to skip folder: {}", filename, e);
-                        logger(&err_msg);
-                        errors.push(err_msg);
-                    } else {
-                        logger(&format!("Moved to skip folder: {}", filename));
-                    }
-                }
-            }
+            result.files_skipped += group.files.len();
+            result.skipped_details.extend(skip_group(
+                &group.files,
+                skip_folder.as_ref(),
+                base_path,
+                &config.skip_patterns,
+                logger,
+                &mut result.errors,
+            ));
             continue;
         }
-
-        let folder_name = suggest_folder_name(&group);
-        let target_dir = base_path.join(&folder_name);
-
-        // Create folder if it doesn't exist
-        if !target_dir.exists() {
-            match fs::create_dir(&target_dir) {
-                Ok(_) => {
-                    folders_created += 1;
-                    logger(&format!("Created folder: {}", folder_name));
-                }
-                Err(e) => {
-                    let err_msg = format!("Failed to create folder '{}': {}", folder_name, e);
-                    logger(&err_msg);
-                    errors.push(err_msg);
-                    continue;
-                }
-            }
-        }
-
-        // Move files into the folder
-        for filename in &group.files {
-            let source = base_path.join(filename);
-            let dest = target_dir.join(filename);
-
-            // Handle naming conflicts
-            let final_dest = if dest.exists() {
-                match handle_naming_conflict(&dest) {
-                    Ok(path) => path,
-                    Err(e) => {
-                        let err_msg = format!("Naming conflict for '{}': {}", filename, e);
-                        logger(&err_msg);
-                        errors.push(err_msg);
-                        continue;
-                    }
-                }
-            } else {
-                dest
-            };
-
-            match fs::rename(&source, &final_dest) {
-                Ok(_) => {
-                    files_moved += 1;
-                    logger(&format!("Moved: {} -> {}", filename, folder_name));
-                }
-                Err(e) => {
-                    let err_msg = format!("Failed to move '{}': {}", filename, e);
-                    logger(&err_msg);
-                    errors.push(err_msg);
-                }
-            }
-        }
+        let (moved, created) =
+            move_group(&group, base_path, &dir_manager, logger, &mut result.errors);
+        result.files_moved += moved;
+        result.folders_created += created;
     }
 
     logger(&format!(
         "Organization complete: {} files moved, {} folders created, {} files skipped",
-        files_moved, folders_created, files_skipped
+        result.files_moved, result.folders_created, result.files_skipped
     ));
-
-    Ok(OrganizeResult {
-        files_moved,
-        folders_created,
-        files_skipped,
-        skipped_details,
-        errors,
-    })
+    Ok(result)
 }
 
-/// Handles naming conflicts by appending a number
-fn handle_naming_conflict(path: &Path) -> io::Result<PathBuf> {
-    let parent = path.parent().unwrap();
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| format!(".{}", e))
-        .unwrap_or_default();
-
-    for i in 1..1000 {
-        let new_name = format!("{}_{}{}", stem, i, extension);
-        let new_path = parent.join(new_name);
-        if !new_path.exists() {
-            return Ok(new_path);
-        }
-    }
-
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "Could not find available filename",
-    ))
-}
-
-// TUI Implementation for Filename Organization
-
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-
-/// TUI App for filename-based organization
 pub struct FilenameTuiApp {
     base_path: PathBuf,
     config: SimilarityConfig,
@@ -715,14 +610,16 @@ pub struct FilenameTuiApp {
     move_skipped_to_folder: bool,
     groups: Vec<FileGroup>,
     scroll_offset: usize,
-    log_messages: Arc<Mutex<Vec<String>>>,
+    log_messages: Vec<String>,
+    tick: usize,
+    state_changed: bool,
 }
 
 enum FilenameAppState {
     Ready,
-    Analyzing,
+    Analyzing(Job<Vec<FileGroup>>),
     ReviewGroups,
-    Organizing,
+    Organizing(Job<(OrganizeResult, Vec<String>)>),
     Complete(OrganizeResult),
 }
 
@@ -735,679 +632,394 @@ impl FilenameTuiApp {
             move_skipped_to_folder: false,
             groups: Vec::new(),
             scroll_offset: 0,
-            log_messages: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    fn log(&self, message: &str) {
-        if let Ok(mut logs) = self.log_messages.lock() {
-            logs.push(message.to_string());
+            log_messages: Vec::new(),
+            tick: 0,
+            state_changed: false,
         }
     }
 
     pub fn run(&mut self) -> io::Result<()> {
-        // Import crossterm types
-        use crossterm::{
-            event::{DisableMouseCapture, EnableMouseCapture},
-            execute,
-            terminal::{
-                disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-            },
-        };
-        use std::io::stdout;
-
-        enable_raw_mode()?;
-        let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-
-        // Import ratatui types
-        use ratatui::{backend::CrosstermBackend, Terminal};
-
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
-
-        let result = self.run_app(&mut terminal);
-
-        disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
-        terminal.show_cursor()?;
-
-        result
+        tui::run(self)
     }
 
-    fn run_app(
-        &mut self,
-        terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
-    ) -> io::Result<()> {
-        use crossterm::event::{self, Event, KeyCode};
+    pub fn get_logs(&self) -> Vec<String> {
+        self.log_messages.clone()
+    }
 
-        loop {
-            terminal.draw(|f| self.draw_ui(f))?;
+    fn start_analysis(&mut self) {
+        let base_path = self.base_path.clone();
+        let config = self.config.clone();
+        self.state = FilenameAppState::Analyzing(Job::spawn(move |tx| {
+            let _ = tx.send(Progress::Update(
+                "Scanning and comparing filenames...".into(),
+            ));
 
-            if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            // Allow quitting from any state
-                            if matches!(self.state, FilenameAppState::Organizing) {
-                                // Don't quit while organizing
-                                continue;
-                            }
-                            self.log("User requested quit");
-                            break;
-                        }
-                        KeyCode::Char('a') => {
-                            if matches!(self.state, FilenameAppState::Ready) {
-                                self.analyze_files()?;
-                            }
-                        }
-                        KeyCode::Char('s') => {
-                            if matches!(self.state, FilenameAppState::ReviewGroups) {
-                                self.start_organization()?;
-                            }
-                        }
-                        KeyCode::Char('k') => {
-                            if matches!(self.state, FilenameAppState::ReviewGroups) {
-                                self.move_skipped_to_folder = !self.move_skipped_to_folder;
-                                self.log(&format!(
-                                    "Toggle skip folder: {}",
-                                    self.move_skipped_to_folder
-                                ));
-                            }
-                        }
-                        KeyCode::Char('r') => {
-                            if matches!(self.state, FilenameAppState::Complete(_)) {
-                                self.state = FilenameAppState::Ready;
-                                self.groups.clear();
-                                self.scroll_offset = 0;
-                                self.log("Reset to ready state");
-                            }
-                        }
-                        KeyCode::Up => {
-                            if self.scroll_offset > 0 {
-                                self.scroll_offset -= 1;
-                            }
-                        }
-                        KeyCode::Down => {
-                            self.scroll_offset += 1;
-                        }
-                        KeyCode::PageUp => {
-                            self.scroll_offset = self.scroll_offset.saturating_sub(10);
-                        }
-                        KeyCode::PageDown => {
-                            self.scroll_offset += 10;
-                        }
-                        _ => {}
-                    }
-                }
+            let entries: Vec<_> = fs::read_dir(&base_path)
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    let p = e.path();
+                    p.is_file() && !(config.skip_hidden_files && is_hidden(&p))
+                })
+                .collect();
+
+            let filenames: Vec<String> = entries
+                .iter()
+                .filter_map(|e| {
+                    e.path()
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(String::from)
+                })
+                .collect();
+
+            group_similar_files(&filenames, &config)
+        }));
+    }
+
+    fn start_organization(&mut self) {
+        let base_path = self.base_path.clone();
+        let config = self.config.clone();
+        let move_skipped = self.move_skipped_to_folder;
+        self.state = FilenameAppState::Organizing(Job::spawn(move |tx| {
+            let mut log = Vec::new();
+            let mut logger = |msg: &str| {
+                log.push(msg.to_string());
+                let _ = tx.send(Progress::Update(msg.to_string()));
+            };
+            let result = organize_by_similarity(&base_path, &config, move_skipped, &mut logger)
+                .unwrap_or_default();
+            (result, log)
+        }));
+    }
+
+    fn draw_ready(&self, f: &mut Frame, cols: [Rect; 3]) {
+        let left = vec![
+            tui::blank(),
+            tui::section_label("target"),
+            tui::path_line(&self.base_path.display().to_string()),
+            tui::blank(),
+            tui::section_label("algorithm"),
+            tui::stat("levenshtein weight", "60%", tui::INFO),
+            tui::stat("jaccard weight", "40%", tui::MUTED),
+            tui::stat("min similarity", "65%", tui::WARN),
+        ];
+        f.render_widget(tui::paragraph(left, "scan target"), cols[0]);
+
+        let mid = vec![
+            tui::blank(),
+            tui::header("ready to analyze", tui::OK),
+            tui::blank(),
+            tui::bullet("compares every filename pair with dual similarity metrics"),
+            tui::bullet("levenshtein: edit-distance on full name"),
+            tui::bullet("jaccard: token overlap on word splits"),
+            tui::blank(),
+            tui::header("press [a] to begin", tui::MUTED),
+        ];
+        f.render_widget(tui::paragraph(mid, "overview"), cols[1]);
+
+        let right = vec![
+            tui::blank(),
+            tui::section_label("options"),
+            tui::stat(
+                "move skipped",
+                if self.move_skipped_to_folder {
+                    "yes"
+                } else {
+                    "no"
+                },
+                tui::WARN,
+            ),
+            tui::blank(),
+            tui::bullet("press [k] to toggle"),
+            tui::bullet("skipped files → tyr-skip/"),
+        ];
+        f.render_widget(tui::paragraph(right, "options"), cols[2]);
+    }
+
+    fn draw_review(&self, f: &mut Frame, cols: [Rect; 3]) {
+        let multi: Vec<_> = self.groups.iter().filter(|g| g.files.len() > 1).collect();
+        let single = self.groups.len() - multi.len();
+
+        // Left: summary stats
+        let left = vec![
+            tui::blank(),
+            tui::header("✓ analysis complete", tui::OK),
+            tui::blank(),
+            tui::stat("groups (2+ files)", multi.len().to_string(), tui::INFO),
+            tui::stat("single files", single.to_string(), tui::WARN),
+            tui::blank(),
+            tui::section_label("skip folder"),
+            tui::stat(
+                "move singles",
+                if self.move_skipped_to_folder {
+                    "yes → tyr-skip/"
+                } else {
+                    "no"
+                },
+                if self.move_skipped_to_folder {
+                    tui::OK
+                } else {
+                    tui::MUTED
+                },
+            ),
+        ];
+        f.render_widget(tui::paragraph(left, "summary"), cols[0]);
+
+        // Mid: scrollable group list
+        let mut lines = vec![tui::section_label("groups preview")];
+        for (i, group) in multi.iter().skip(self.scroll_offset).take(12).enumerate() {
+            let folder = crate::organizer::filename::suggest_folder_name(group);
+            lines.push(tui::header(
+                format!(
+                    "{:2}. {folder} ({} files, {:.0}%)",
+                    i + 1 + self.scroll_offset,
+                    group.files.len(),
+                    group.avg_similarity * 100.0
+                ),
+                tui::INFO,
+            ));
+            for file in group.files.iter().take(2) {
+                lines.push(tui::bullet(file));
             }
+            if group.files.len() > 2 {
+                lines.push(tui::bullet(format!("… {} more", group.files.len() - 2)));
+            }
+            lines.push(tui::blank());
         }
-        Ok(())
+        if multi.len() > 12 + self.scroll_offset {
+            lines.push(tui::more(multi.len() - 12 - self.scroll_offset, "groups"));
+        }
+        f.render_widget(tui::paragraph(lines, "review groups"), cols[1]);
+
+        // Right: first group's files as a sample
+        let right_lines: Vec<Line> = if let Some(g) = multi.first() {
+            let mut v = vec![tui::section_label("sample group"), tui::blank()];
+            for file in &g.files {
+                v.push(tui::bullet(file));
+            }
+            v
+        } else {
+            vec![
+                tui::blank(),
+                tui::header("no multi-file groups", tui::MUTED),
+            ]
+        };
+        f.render_widget(tui::paragraph(right_lines, "sample"), cols[2]);
     }
 
-    fn analyze_files(&mut self) -> io::Result<()> {
-        self.state = FilenameAppState::Analyzing;
-        self.log("Starting file analysis");
+    fn draw_complete(&self, f: &mut Frame, cols: [Rect; 3], result: &OrganizeResult) {
+        let left = vec![
+            tui::blank(),
+            tui::header("✓ organization complete", tui::OK),
+            tui::blank(),
+            tui::stat(
+                "folders created",
+                result.folders_created.to_string(),
+                tui::OK,
+            ),
+            tui::stat("files moved", result.files_moved.to_string(), tui::INFO),
+            tui::stat("files skipped", result.files_skipped.to_string(), tui::WARN),
+            tui::stat("errors", result.errors.len().to_string(), tui::ERR),
+        ];
+        f.render_widget(tui::paragraph(left, "results"), cols[0]);
 
-        // Read directory
+        let mut err_lines: Vec<Line> = vec![tui::section_label("errors"), tui::blank()];
+        for e in result.errors.iter().take(14) {
+            err_lines.push(tui::bullet(e));
+        }
+        if result.errors.len() > 14 {
+            err_lines.push(tui::more(result.errors.len() - 14, "errors"));
+        }
+        f.render_widget(tui::paragraph(err_lines, "errors"), cols[1]);
+        let mut mid_lines: Vec<Line> = vec![tui::section_label("skipped files"), tui::blank()];
+        for skip in result
+            .skipped_details
+            .iter()
+            .skip(self.scroll_offset)
+            .take(14)
+        {
+            mid_lines.push(tui::bullet(format!(
+                "{} — {}",
+                skip.filename,
+                skip.reason.label()
+            )));
+        }
+        if result.skipped_details.len() > 14 + self.scroll_offset {
+            mid_lines.push(tui::more(
+                result.skipped_details.len() - 14 - self.scroll_offset,
+                "files",
+            ));
+        }
+        f.render_widget(tui::paragraph(mid_lines, "skipped"), cols[2]);
+    }
+
+
+    /// Runs without any UI: analyze then organize immediately.
+    pub fn auto_organize(&mut self) -> io::Result<()> {
         let entries: Vec<_> = fs::read_dir(&self.base_path)?
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_file())
+            .filter(|e| {
+                let p = e.path();
+                p.is_file() && !(self.config.skip_hidden_files && is_hidden(&p))
+            })
             .collect();
-
-        self.log(&format!("Found {} files", entries.len()));
-
         let filenames: Vec<String> = entries
             .iter()
             .filter_map(|e| {
                 e.path()
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .map(|s| s.to_string())
+                    .map(String::from)
             })
             .collect();
-
         self.groups = group_similar_files(&filenames, &self.config);
-        self.log(&format!("Grouped into {} clusters", self.groups.len()));
-        self.state = FilenameAppState::ReviewGroups;
-        self.scroll_offset = 0;
-        Ok(())
-    }
 
-    fn start_organization(&mut self) -> io::Result<()> {
-        self.state = FilenameAppState::Organizing;
-        self.log("Starting organization");
-
-        let log_messages = Arc::clone(&self.log_messages);
-        let mut logger = |msg: &str| {
-            if let Ok(mut logs) = log_messages.lock() {
-                logs.push(msg.to_string());
-            }
-        };
-
-        // Perform organization
+        let mut logger = |_: &str| {};
         let result = organize_by_similarity(
             &self.base_path,
             &self.config,
             self.move_skipped_to_folder,
             &mut logger,
         )?;
-
+        print_summary(&result);
         self.state = FilenameAppState::Complete(result);
-        self.scroll_offset = 0;
         Ok(())
     }
+}
 
-    fn draw_ui(&self, f: &mut ratatui::Frame) {
-        use ratatui::{
-            layout::{Constraint, Direction, Layout},
-            style::{Color, Modifier, Style},
-            widgets::{Block, Borders, Paragraph},
-        };
+fn print_summary(result: &OrganizeResult) {
+    println!("\n\u{2726} Organization Complete!\n");
+    println!("   Folders created: {}", result.folders_created);
+    println!("   Files moved:     {}", result.files_moved);
+    println!("   Files skipped:   {}", result.files_skipped);
+    if !result.errors.is_empty() {
+        println!("\nErrors:");
+        for e in &result.errors {
+            println!("   - {e}");
+        }
+    }
+}
 
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
+impl App for FilenameTuiApp {
+    fn tick(&mut self) {
+        self.tick = self.tick.wrapping_add(1);
+        self.state_changed = false;
+        match &mut self.state {
+            FilenameAppState::Analyzing(job) => {
+                if let Some(groups) = job.poll() {
+                    self.groups = groups;
+                    self.scroll_offset = 0;
+                    self.state = FilenameAppState::ReviewGroups;
+                    self.state_changed = true;
+                }
+            }
+            FilenameAppState::Organizing(job) => {
+                if let Some((result, log)) = job.poll() {
+                    self.log_messages = log;
+                    self.scroll_offset = 0;
+                    self.state = FilenameAppState::Complete(result);
+                    self.state_changed = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn needs_clear(&self) -> bool {
+        self.state_changed
+    }
+
+    fn on_key(&mut self, key: KeyCode) -> Flow {
+        use FilenameAppState::*;
+        match (key, &self.state) {
+            (KeyCode::Char('q') | KeyCode::Esc, Analyzing(_) | Organizing(_)) => Flow::Continue,
+            (KeyCode::Char('q') | KeyCode::Esc, _) => Flow::Quit,
+            (KeyCode::Char('a'), Ready) => {
+                self.start_analysis();
+                self.state_changed = true;
+                Flow::Continue
+            }
+            (KeyCode::Char('s'), ReviewGroups) => {
+                self.start_organization();
+                self.state_changed = true;
+                Flow::Continue
+            }
+            (KeyCode::Char('k'), ReviewGroups) => {
+                self.move_skipped_to_folder = !self.move_skipped_to_folder;
+                Flow::Continue
+            }
+            (KeyCode::Up, _) => {
+                self.scroll_offset = self.scroll_offset.saturating_sub(1);
+                Flow::Continue
+            }
+            (KeyCode::Down, _) => {
+                self.scroll_offset += 1;
+                Flow::Continue
+            }
+            (KeyCode::PageUp, _) => {
+                self.scroll_offset = self.scroll_offset.saturating_sub(10);
+                Flow::Continue
+            }
+            (KeyCode::PageDown, _) => {
+                self.scroll_offset += 10;
+                Flow::Continue
+            }
+            _ => Flow::Continue,
+        }
+    }
+
+    fn draw(&self, f: &mut Frame) {
+        let rows = tui::vsplit(
+            f.area(),
+            &[
                 Constraint::Length(3),
                 Constraint::Min(10),
                 Constraint::Length(3),
-            ])
-            .split(f.size());
+            ],
+        );
 
-        // Title
-        let title = Paragraph::new(" Tyr - Filename Similarity Organizer")
-            .style(
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .block(Block::default().borders(Borders::ALL));
-        f.render_widget(title, chunks[0]);
+        let (status, status_color, bindings): (&str, Color, &[(&str, &str)]) = match &self.state {
+            FilenameAppState::Ready => ("ready", tui::OK, &[("a", "analyze"), ("q", "quit")]),
+            FilenameAppState::Analyzing(_) => ("analyzing", tui::WARN, &[("...", "please wait")]),
+            FilenameAppState::ReviewGroups => (
+                "review",
+                tui::INFO,
+                &[
+                    ("s", "organize"),
+                    ("k", "toggle skip"),
+                    ("↑↓", "scroll"),
+                    ("q", "quit"),
+                ],
+            ),
+            FilenameAppState::Organizing(_) => ("running", tui::INFO, &[("...", "please wait")]),
+            FilenameAppState::Complete(_) => ("done", tui::OK, &[("↑↓", "scroll"), ("q", "quit")]),
+        };
 
-        // Main content
+        let cols = tui::screen_frame(
+            f,
+            rows[0],
+            rows[1],
+            rows[2],
+            "filename similarity organizer",
+            status,
+            status_color,
+            bindings,
+            35,
+            28,
+        );
+
         match &self.state {
-            FilenameAppState::Ready => self.draw_ready_state(f, chunks[1]),
-            FilenameAppState::Analyzing => self.draw_analyzing_state(f, chunks[1]),
-            FilenameAppState::ReviewGroups => self.draw_review_state(f, chunks[1]),
-            FilenameAppState::Organizing => self.draw_organizing_state(f, chunks[1]),
-            FilenameAppState::Complete(result) => self.draw_complete_state(f, chunks[1], result),
+            FilenameAppState::Ready => self.draw_ready(f, cols),
+            FilenameAppState::Analyzing(job) => {
+                tui::busy_gauge(f, cols[1], "analyzing", &job.message, tui::WARN, self.tick);
+            }
+            FilenameAppState::ReviewGroups => self.draw_review(f, cols),
+            FilenameAppState::Organizing(job) => {
+                tui::busy_gauge(f, cols[1], "organizing", &job.message, tui::INFO, self.tick);
+            }
+            FilenameAppState::Complete(result) => self.draw_complete(f, cols, result),
         }
-
-        // Controls
-        self.draw_controls(f, chunks[2]);
-    }
-
-    fn draw_ready_state(&self, f: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        use ratatui::{
-            style::{Color, Modifier, Style},
-            text::{Line, Span},
-            widgets::{Block, Borders, Paragraph},
-        };
-
-        let text = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                " Ready to Analyze Files",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(vec![
-                Span::raw("Directory: "),
-                Span::styled(
-                    self.base_path.display().to_string(),
-                    Style::default().fg(Color::Yellow),
-                ),
-            ]),
-            Line::from(""),
-            Line::from(Span::styled(
-                "How it works:",
-                Style::default().fg(Color::Cyan),
-            )),
-            Line::from("  • Analyzes filename patterns using ML algorithms"),
-            Line::from("  • Groups similar files (e.g., IMG_001.jpg, IMG_002.jpg)"),
-            Line::from("  • Creates organized folders automatically"),
-            Line::from(""),
-            Line::from(Span::styled(
-                " Press 'a' to begin analysis",
-                Style::default().fg(Color::Green),
-            )),
-        ];
-
-        let widget =
-            Paragraph::new(text).block(Block::default().borders(Borders::ALL).title(" Status "));
-        f.render_widget(widget, area);
-    }
-
-    fn draw_analyzing_state(&self, f: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        use ratatui::{
-            style::{Color, Style},
-            widgets::{Block, Borders, Gauge},
-        };
-
-        let gauge = Gauge::default()
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Analyzing Files "),
-            )
-            .gauge_style(Style::default().fg(Color::Yellow))
-            .label(" Scanning and grouping files...")
-            .percent(50);
-        f.render_widget(gauge, area);
-    }
-
-    fn draw_review_state(&self, f: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        use ratatui::{
-            style::{Color, Modifier, Style},
-            text::{Line, Span},
-            widgets::{Block, Borders, Paragraph, Wrap},
-        };
-
-        let mut lines = vec![
-            Line::from(Span::styled(
-                format!(
-                    "✓ Analysis Complete - Found {} file groups",
-                    self.groups.len()
-                ),
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-        ];
-
-        let grouped_count = self.groups.iter().filter(|g| g.files.len() > 1).count();
-        let single_count = self.groups.iter().filter(|g| g.files.len() == 1).count();
-
-        lines.push(Line::from(vec![
-            Span::raw(" Groups with 2+ files: "),
-            Span::styled(
-                grouped_count.to_string(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]));
-        lines.push(Line::from(vec![
-            Span::raw(" Single files: "),
-            Span::styled(single_count.to_string(), Style::default().fg(Color::Yellow)),
-        ]));
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Preview of groups:",
-            Style::default().fg(Color::Cyan),
-        )));
-        lines.push(Line::from(""));
-
-        // Show groups with scroll support
-        let multi_file_groups: Vec<_> = self.groups.iter().filter(|g| g.files.len() > 1).collect();
-        let visible_groups = multi_file_groups.iter().skip(self.scroll_offset).take(8);
-
-        for (i, group) in visible_groups.enumerate() {
-            let folder_name = suggest_folder_name(group);
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("{}. ", i + 1 + self.scroll_offset),
-                    Style::default().fg(Color::Gray),
-                ),
-                Span::styled(
-                    folder_name,
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(format!(" ({} files, similarity: ", group.files.len())),
-                Span::styled(
-                    format!("{:.0}%", group.avg_similarity * 100.0),
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::raw(")"),
-            ]));
-
-            // Show first 2 files as examples
-            for (j, file) in group.files.iter().take(2).enumerate() {
-                lines.push(Line::from(format!(
-                    "   {} {}",
-                    if j == 0 { "├─" } else { "└─" },
-                    file
-                )));
-            }
-            if group.files.len() > 2 {
-                lines.push(Line::from(format!(
-                    "   ... and {} more",
-                    group.files.len() - 2
-                )));
-            }
-            lines.push(Line::from(""));
-        }
-
-        if multi_file_groups.len() > 8 + self.scroll_offset {
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "▼ {} more groups (use ↑↓ to scroll)",
-                    multi_file_groups.len() - 8 - self.scroll_offset
-                ),
-                Style::default().fg(Color::Gray),
-            )));
-        }
-
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::raw(" Move skipped files to 'tyr-skip' folder: "),
-            Span::styled(
-                if self.move_skipped_to_folder {
-                    "YES ✓"
-                } else {
-                    "NO"
-                },
-                if self.move_skipped_to_folder {
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Red)
-                },
-            ),
-        ]));
-
-        let widget = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Review Groups "),
-            )
-            .wrap(Wrap { trim: false });
-        f.render_widget(widget, area);
-    }
-
-    fn draw_organizing_state(&self, f: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        use ratatui::{
-            style::{Color, Style},
-            widgets::{Block, Borders, Gauge},
-        };
-
-        let gauge = Gauge::default()
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Organizing Files "),
-            )
-            .gauge_style(Style::default().fg(Color::Cyan))
-            .label(" Moving files into folders...")
-            .percent(75);
-        f.render_widget(gauge, area);
-    }
-
-    fn draw_complete_state(
-        &self,
-        f: &mut ratatui::Frame,
-        area: ratatui::layout::Rect,
-        result: &OrganizeResult,
-    ) {
-        use ratatui::{
-            style::{Color, Modifier, Style},
-            text::{Line, Span},
-            widgets::{Block, Borders, Paragraph, Wrap},
-        };
-
-        let mut lines = vec![
-            Line::from(Span::styled(
-                "✦ Organization Complete!",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(vec![
-                Span::raw(" Folders created: "),
-                Span::styled(
-                    result.folders_created.to_string(),
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![
-                Span::raw(" Files moved: "),
-                Span::styled(
-                    result.files_moved.to_string(),
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![
-                Span::raw(" Files skipped: "),
-                Span::styled(
-                    result.files_skipped.to_string(),
-                    Style::default().fg(Color::Yellow),
-                ),
-            ]),
-            Line::from(""),
-        ];
-
-        if !result.skipped_details.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "Skipped Files:",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(""));
-
-            let visible_skipped = result
-                .skipped_details
-                .iter()
-                .skip(self.scroll_offset)
-                .take(8);
-
-            for skip in visible_skipped {
-                let (icon, reason_text) = match skip.reason {
-                    SkipReason::SingleFile => ("", "No similar matches found"),
-                    SkipReason::SystemFile => ("", "System file"),
-                    SkipReason::AlreadyOrganized => ("✓", "Already organized"),
-                };
-                lines.push(Line::from(vec![
-                    Span::raw(format!("  {} ", icon)),
-                    Span::styled(&skip.filename, Style::default().fg(Color::Gray)),
-                    Span::raw(" - "),
-                    Span::styled(reason_text, Style::default().fg(Color::Yellow)),
-                ]));
-            }
-
-            if result.skipped_details.len() > 8 + self.scroll_offset {
-                lines.push(Line::from(Span::styled(
-                    format!(
-                        "▼ {} more (use ↑↓ to scroll)",
-                        result.skipped_details.len() - 8 - self.scroll_offset
-                    ),
-                    Style::default().fg(Color::Gray),
-                )));
-            }
-            lines.push(Line::from(""));
-        }
-
-        if !result.errors.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "! Errors:",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            )));
-            for error in result.errors.iter().take(5) {
-                lines.push(Line::from(format!("  • {}", error)));
-            }
-            if result.errors.len() > 5 {
-                lines.push(Line::from(format!(
-                    "  ... and {} more errors",
-                    result.errors.len() - 5
-                )));
-            }
-        }
-
-        let widget = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(" Results "))
-            .wrap(Wrap { trim: false });
-        f.render_widget(widget, area);
-    }
-
-    fn draw_controls(&self, f: &mut ratatui::Frame, area: ratatui::layout::Rect) {
-        use ratatui::{
-            style::{Color, Style},
-            widgets::{Block, Borders, Paragraph},
-        };
-
-        let controls = match &self.state {
-            FilenameAppState::Ready => "'a' Analyze | 'q' Quit",
-            FilenameAppState::ReviewGroups => {
-                "'s' Start Organization | 'k' Toggle Skip Folder | ↑↓ Scroll | 'q' Quit"
-            }
-            FilenameAppState::Complete(_) => "'r' Reset | ↑↓ Scroll | 'q' Quit",
-            FilenameAppState::Organizing => " Organizing... Please wait",
-            _ => " Please wait...",
-        };
-
-        let widget = Paragraph::new(controls)
-            .style(Style::default().fg(Color::Yellow))
-            .block(Block::default().borders(Borders::ALL).title(" Controls "));
-        f.render_widget(widget, area);
-    }
-
-    pub fn get_logs(&self) -> Vec<String> {
-        if let Ok(logs) = self.log_messages.lock() {
-            logs.clone()
-        } else {
-            Vec::new()
-        }
-    }
-    /// Auto-organize files without UI interaction
-    /// Automatically analyzes (press 'a') then organizes (press 's')
-    pub fn auto_organize(&mut self) -> io::Result<()> {
-        // println!("Analyzing files...");
-
-        // Step 1: Analyze files (equivalent to pressing 'a')
-        self.analyze_files()?;
-
-        // Display analysis results
-        if matches!(self.state, FilenameAppState::ReviewGroups) {
-            let grouped_count = self.groups.iter().filter(|g| g.files.len() > 1).count();
-            let single_count = self.groups.iter().filter(|g| g.files.len() == 1).count();
-            let total_files: usize = self.groups.iter().map(|g| g.files.len()).sum();
-
-            println!("\n✓ Analysis Complete!");
-            println!("   • Total files:        {}", total_files);
-            println!("   • Groups with 2+ files: {}", grouped_count);
-            println!("   • Single files:       {}", single_count);
-
-            // Show preview of groups
-            // if grouped_count > 0 {
-            //     println!("\Preview of file groups:");
-            //     let multi_file_groups: Vec<_> = self.groups.iter()
-            //         .filter(|g| g.files.len() > 1)
-            //         .collect();
-
-            //     for (i, group) in multi_file_groups.iter().take(5).enumerate() {
-            //         let folder_name = suggest_folder_name(group);
-            //         println!("   {}. {} ({} files, similarity: {:.0}%)",
-            //             i + 1,
-            //             folder_name,
-            //             group.files.len(),
-            //             group.avg_similarity * 100.0
-            //         );
-
-            //         // Show first 2 files
-            //         for (j, file) in group.files.iter().take(2).enumerate() {
-            //             println!("      {} {}",
-            //                 if j == 0 { "├─" } else { "└─" },
-            //                 file
-            //             );
-            //         }
-            //         if group.files.len() > 2 {
-            //             println!("      ... and {} more", group.files.len() - 2);
-            //         }
-            //     }
-
-            //     if multi_file_groups.len() > 5 {
-            //         println!("   ... and {} more groups", multi_file_groups.len() - 5);
-            //     }
-            // }
-
-            // println!("\nStarting organization...");
-        }
-
-        // Step 2: Start organization (equivalent to pressing 's')
-        self.start_organization()?;
-
-        // Display organization results
-        if let FilenameAppState::Complete(result) = &self.state {
-            println!("\n✦ Organization Complete!\n");
-            println!("Summary:");
-            println!("   • Folders created: {}", result.folders_created);
-            println!("   • Files moved:     {}", result.files_moved);
-            println!("   • Files skipped:   {}", result.files_skipped);
-
-            // Show skipped files summary
-            if !result.skipped_details.is_empty() {
-                println!("\n[!]  Skipped Files:");
-
-                let single_files = result
-                    .skipped_details
-                    .iter()
-                    .filter(|s| matches!(s.reason, SkipReason::SingleFile))
-                    .count();
-                let system_files = result
-                    .skipped_details
-                    .iter()
-                    .filter(|s| matches!(s.reason, SkipReason::SystemFile))
-                    .count();
-                let already_organized = result
-                    .skipped_details
-                    .iter()
-                    .filter(|s| matches!(s.reason, SkipReason::AlreadyOrganized))
-                    .count();
-
-                if single_files > 0 {
-                    println!("   • No similar matches: {}", single_files);
-                }
-                if system_files > 0 {
-                    println!("   • System files:       {}", system_files);
-                }
-                if already_organized > 0 {
-                    println!("   • Already organized:  {}", already_organized);
-                }
-
-                // Show first few skipped files
-                if result.skipped_details.len() <= 5 {
-                    println!("\n   Files:");
-                    for skip in &result.skipped_details {
-                        let reason_text = match skip.reason {
-                            SkipReason::SingleFile => "no matches",
-                            SkipReason::SystemFile => "system file",
-                            SkipReason::AlreadyOrganized => "already organized",
-                        };
-                        println!("   • {} ({})", skip.filename, reason_text);
-                    }
-                } else {
-                    println!("   (Use logs for full details)");
-                }
-            }
-
-            // Show errors if any
-            if !result.errors.is_empty() {
-                println!("\nx Errors:");
-                for (i, error) in result.errors.iter().enumerate().take(3) {
-                    println!("   {}. {}", i + 1, error);
-                }
-                if result.errors.len() > 3 {
-                    println!("   ... and {} more errors", result.errors.len() - 3);
-                }
-            }
-        }
-
-        Ok(())
     }
 }

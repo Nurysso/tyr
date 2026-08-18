@@ -3,22 +3,16 @@
 
 batch_size = 100
 
-# Enable smart grouping using ML-based similarity detection
-# When enabled, files with similar names will be grouped together
-# even if they have different extensions
-enable_smart_grouping = false
-
 # Files/patterns to skip during organization
 skip_patterns = [
-    ".DS_Store",
-    "Thumbs.db",
-    ".git",
-    ".gitignore",
-    "desktop.ini",
-    ".localized"
+  ".DS_Store",
+  "Thumbs.db",
+  ".git",
+  ".gitignore",
+  "desktop.ini",
+  ".localized"
 ]
 
-# Smart grouping configuration (only used if enable_smart_grouping = true)
 [similarity_config]
 # Levenshtein distance threshold (0.0 to 1.0)
 # Higher = stricter matching. Measures character-level similarity.
@@ -46,19 +40,72 @@ min_similarity_score = 0.65
 #   - folder_name: optional custom folder name (defaults to category key)
 
 [categories.images]
-extensions = ["jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "tiff", "ico", "heic", "raw", "cr2", "nef", "orf", "sr2"]
+extensions = [
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "bmp",
+  "svg",
+  "webp",
+  "tiff",
+  "ico",
+  "heic",
+  "raw",
+  "cr2",
+  "nef",
+  "orf",
+  "sr2"
+]
 folder_name = "Images"
 
 [categories.videos]
-extensions = ["mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "mpg", "mpeg", "vob"]
+extensions = [
+  "mp4",
+  "avi",
+  "mkv",
+  "mov",
+  "wmv",
+  "flv",
+  "webm",
+  "m4v",
+  "3gp",
+  "mpg",
+  "mpeg",
+  "vob"
+]
 folder_name = "Videos"
 
 [categories.audio]
-extensions = ["mp3", "wav", "flac", "aac", "ogg", "wma", "m4a", "opus", "aiff", "ape", "alac"]
+extensions = [
+  "mp3",
+  "wav",
+  "flac",
+  "aac",
+  "ogg",
+  "wma",
+  "m4a",
+  "opus",
+  "aiff",
+  "ape",
+  "alac"
+]
 folder_name = "Music"
 
 [categories.documents]
-extensions = ["pdf", "doc", "docx", "txt", "rtf", "odt", "pages", "tex", "md", "epub", "mobi"]
+extensions = [
+  "pdf",
+  "doc",
+  "docx",
+  "txt",
+  "rtf",
+  "odt",
+  "pages",
+  "tex",
+  "md",
+  "epub",
+  "mobi"
+]
 folder_name = "Documents"
 
 [categories.spreadsheets]
@@ -70,19 +117,84 @@ extensions = ["ppt", "pptx", "odp", "key"]
 folder_name = "Presentations"
 
 [categories.archives]
-extensions = ["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "dmg", "pkg", "deb", "rpm", "iso"]
+extensions = [
+  "zip",
+  "rar",
+  "7z",
+  "tar",
+  "gz",
+  "bz2",
+  "xz",
+  "dmg",
+  "pkg",
+  "deb",
+  "rpm",
+  "iso"
+]
 folder_name = "Archives"
 
 [categories.code]
-extensions = ["rs", "py", "js", "ts", "jsx", "tsx", "html", "css", "scss", "sass", "cpp", "c", "h", "hpp", "java", "go", "php", "rb", "swift", "kt", "dart", "scala", "sh", "bat", "ps1", "r", "lua", "vim"]
+extensions = [
+  "rs",
+  "py",
+  "js",
+  "ts",
+  "jsx",
+  "tsx",
+  "html",
+  "css",
+  "scss",
+  "sass",
+  "cpp",
+  "c",
+  "h",
+  "hpp",
+  "java",
+  "go",
+  "php",
+  "rb",
+  "swift",
+  "kt",
+  "dart",
+  "scala",
+  "sh",
+  "bat",
+  "ps1",
+  "r",
+  "lua",
+  "vim"
+]
 folder_name = "Code"
 
 [categories.data]
-extensions = ["json", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "sql", "db", "sqlite", "mdb"]
+extensions = [
+  "json",
+  "xml",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "sql",
+  "db",
+  "sqlite",
+  "mdb"
+]
 folder_name = "Data"
 
 [categories.executables]
-extensions = ["exe", "msi", "app", "deb", "rpm", "dmg", "pkg", "appimage", "run"]
+extensions = [
+  "exe",
+  "msi",
+  "app",
+  "deb",
+  "rpm",
+  "dmg",
+  "pkg",
+  "appimage",
+  "run"
+]
 folder_name = "Applications"
 
 [categories.fonts]

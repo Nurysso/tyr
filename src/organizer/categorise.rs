@@ -4,9 +4,14 @@
 // Maintainer Dawood (Nurysso) contact - nurysso [at] proton.me
 
 /*
- * This file is responsible for executing category(file extension) based file organazing for
+ * This file is responsible for executing category(file extension) based file organizing for
  * tyr(https:github.com/Nurysso/tyr) project
 */
+
+use crate::organizer::tui::{self, App, Flow, Job, Progress};
+use ratatui::crossterm::event::KeyCode;
+use ratatui::style::Color;
+use ratatui::{layout::Constraint, layout::Rect, Frame};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,27 +19,29 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-
-// Configuration Structures
+use crate::organizer::utils::{is_hidden, LazyDirManager, LogLevel, SafeLogger};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FileOrganizerConfig {
     #[serde(default)]
     pub categories: HashMap<String, CategoryConfig>,
-
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
-
     #[serde(default)]
     pub skip_patterns: Vec<String>,
+    #[serde(default = "default_true")]
+    pub skip_hidden_files: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CategoryConfig {
     pub extensions: Vec<String>,
-
     #[serde(default)]
     pub folder_name: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_batch_size() -> usize {
@@ -53,6 +60,7 @@ impl Default for FileOrganizerConfig {
                 ".gitignore".to_string(),
                 "desktop.ini".to_string(),
             ],
+            skip_hidden_files: true,
         }
     }
 }
@@ -128,8 +136,6 @@ fn create_default_categories() -> HashMap<String, CategoryConfig> {
     map
 }
 
-// Config Loading
-
 impl FileOrganizerConfig {
     pub fn load_from_file(path: &Path) -> io::Result<Self> {
         let content = fs::read_to_string(path)?;
@@ -174,91 +180,6 @@ impl FileOrganizerConfig {
     }
 }
 
-// Lazy Directory Manager (Reduces syscalls)
-
-pub struct LazyDirManager {
-    created_dirs: Arc<Mutex<HashMap<PathBuf, bool>>>,
-}
-
-impl LazyDirManager {
-    pub fn new() -> Self {
-        Self {
-            created_dirs: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    /// Only creates directory if not already created in this session
-    pub fn ensure_dir_exists(&self, path: &Path) -> io::Result<()> {
-        let mut cache = self.created_dirs.lock().unwrap();
-
-        if cache.contains_key(path) {
-            return Ok(());
-        }
-
-        // Check if exists before creating
-        if !path.exists() {
-            fs::create_dir_all(path)?;
-        }
-
-        cache.insert(path.to_path_buf(), true);
-        Ok(())
-    }
-}
-
-// Error-Safe Logger
-
-pub struct SafeLogger {
-    log_entries: Arc<Mutex<Vec<LogEntry>>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LogEntry {
-    pub level: LogLevel,
-    pub message: String,
-    #[allow(dead_code)]
-    pub details: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum LogLevel {
-    Info,
-    Success,
-    #[allow(dead_code)]
-    Warning,
-    Error,
-}
-
-impl SafeLogger {
-    pub fn new() -> Self {
-        Self {
-            log_entries: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    pub fn log(&self, level: LogLevel, message: String, details: Option<String>) {
-        if let Ok(mut entries) = self.log_entries.lock() {
-            entries.push(LogEntry {
-                level,
-                message,
-                details,
-            });
-        }
-    }
-
-    pub fn get_logs(&self) -> Vec<LogEntry> {
-        self.log_entries
-            .lock()
-            .map(|e| e.clone())
-            .unwrap_or_default()
-    }
-
-    // pub fn clear(&self) {
-    //     if let Ok(mut entries) = self.log_entries.lock() {
-    //         entries.clear();
-    //     }
-    // }
-}
-
 // Fast File Organizer (with parallelization)
 
 pub struct FileOrganizer {
@@ -295,7 +216,6 @@ impl FileOrganizer {
     ) -> io::Result<OrganizeResult> {
         let ext_map = self.config.build_extension_map();
 
-        // Collect all file entries
         let entries: Vec<_> = fs::read_dir(base_path)?
             .filter_map(|e| e.ok())
             .filter(|e| e.path().is_file())
@@ -306,7 +226,6 @@ impl FileOrganizer {
         let files_skipped = Arc::new(Mutex::new(0usize));
         let files_failed = Arc::new(Mutex::new(0usize));
 
-        // Process files in parallel for speed
         entries.par_iter().for_each(|entry| {
             let file_path = entry.path();
             let filename = match file_path.file_name().and_then(|n| n.to_str()) {
@@ -317,15 +236,22 @@ impl FileOrganizer {
                 }
             };
 
-            // Skip system files
             if self.should_skip_file(filename) {
                 self.logger
                     .log(LogLevel::Info, format!("Skipped: {}", filename), None);
                 *files_skipped.lock().unwrap() += 1;
                 return;
             }
+            if self.config.skip_hidden_files && is_hidden(&file_path) {
+                self.logger.log(
+                    LogLevel::Info,
+                    format!("Skipped (hidden): {}", filename),
+                    None,
+                );
+                *files_skipped.lock().unwrap() += 1;
+                return;
+            }
 
-            // Get extension and category
             let extension = file_path
                 .extension()
                 .and_then(|ext| ext.to_str())
@@ -340,7 +266,6 @@ impl FileOrganizer {
             let target_dir = base_path.join(&folder_name);
             let target_path = target_dir.join(filename);
 
-            // Handle naming conflicts
             let final_target = match self.handle_naming_conflict(&target_path) {
                 Ok(path) => path,
                 Err(e) => {
@@ -355,7 +280,6 @@ impl FileOrganizer {
             };
 
             if !dry_run {
-                // Lazy create directory
                 if let Err(e) = self.dir_manager.ensure_dir_exists(&target_dir) {
                     self.logger.log(
                         LogLevel::Error,
@@ -366,7 +290,6 @@ impl FileOrganizer {
                     return;
                 }
 
-                // Move file
                 if let Err(e) = fs::rename(&file_path, &final_target) {
                     self.logger.log(
                         LogLevel::Error,
@@ -380,7 +303,7 @@ impl FileOrganizer {
 
             self.logger.log(
                 LogLevel::Success,
-                format!("{} → {}", filename, folder_name),
+                format!("{} \u{2192} {}", filename, folder_name),
                 None,
             );
 
@@ -392,7 +315,6 @@ impl FileOrganizer {
                 .or_insert(0) += 1;
         });
 
-        // Fix: Extract values before creating the result to avoid borrow issues
         let organized_count = *files_organized.lock().unwrap();
         let skipped_count = *files_skipped.lock().unwrap();
         let failed_count = *files_failed.lock().unwrap();
@@ -410,7 +332,7 @@ impl FileOrganizer {
         self.config
             .skip_patterns
             .iter()
-            .any(|pattern| filename.contains(pattern))
+            .any(|pattern| filename == pattern.as_str() || filename.starts_with(pattern.as_str()))
     }
 
     fn handle_naming_conflict(&self, target_path: &Path) -> io::Result<PathBuf> {
@@ -446,32 +368,22 @@ impl FileOrganizer {
 
 // TUI Implementation
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
-    Terminal,
-};
-use std::io::stdout;
-use std::time::Duration;
+enum AppState {
+    Ready,
+    Organizing(Job<OrganizeResult>),
+    Complete(OrganizeResult),
+}
 
 pub struct TuiApp {
     organizer: FileOrganizer,
     base_path: PathBuf,
     state: AppState,
-}
-
-enum AppState {
-    Ready,
-    Organizing,
-    Complete(OrganizeResult),
+    tick: usize,
+    live_moved: usize,
+    live_skipped: usize,
+    live_failed: usize,
+    total_files: usize,
+    state_changed: bool,
 }
 
 impl TuiApp {
@@ -480,326 +392,355 @@ impl TuiApp {
             organizer: FileOrganizer::new(config),
             base_path,
             state: AppState::Ready,
+            tick: 0,
+            live_moved: 0,
+            live_skipped: 0,
+            live_failed: 0,
+            total_files: 0,
+            state_changed: true,
         }
+    }
+
+    /// Flattned log lines ("LEVEL: message"), for file logging.
+    pub fn get_logs(&self) -> Vec<String> {
+        self.organizer
+            .get_logger()
+            .get_logs()
+            .into_iter()
+            .map(|e| {
+                let level = match e.level {
+                    LogLevel::Success => "OK",
+                    LogLevel::Error => "ERROR",
+                    LogLevel::Warning => "WARN",
+                    LogLevel::Info => "INFO",
+                };
+                format!("{level}: {}", e.message)
+            })
+            .collect()
     }
 
     pub fn run(&mut self) -> io::Result<()> {
-        enable_raw_mode()?;
-        let mut stdout = stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
-
-        let result = self.run_app(&mut terminal);
-
-        disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
-        terminal.show_cursor()?;
-
-        result
+        tui::run(self)
     }
 
-    fn run_app(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-    ) -> io::Result<()> {
-        loop {
-            terminal.draw(|f| self.draw_ui(f))?;
+    fn start_organization(&mut self, dry_run: bool) {
+        // Count files upfront so the progress bar has a denominator
+        self.total_files = std::fs::read_dir(&self.base_path)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .filter(|e| e.path().is_file())
+                    .count()
+            })
+            .unwrap_or(0);
+        self.live_moved = 0;
+        self.live_skipped = 0;
+        self.live_failed = 0;
 
-            if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => break,
-                        KeyCode::Char('s') => {
-                            if matches!(self.state, AppState::Ready) {
-                                self.start_organization(false)?;
+        let base_path = self.base_path.clone();
+        let ext_map = self.organizer.config.build_extension_map();
+        let skip_patterns = self.organizer.config.skip_patterns.clone();
+        let skip_hidden = self.organizer.config.skip_hidden_files;
+
+        self.state = AppState::Organizing(Job::spawn(move |tx| {
+            let _ = tx.send(Progress::Update("Sorting files by extension...".into()));
+            let category_counts = Arc::new(Mutex::new(HashMap::new()));
+            let files_organized = Arc::new(Mutex::new(0usize));
+            let files_skipped = Arc::new(Mutex::new(0usize));
+            let files_failed = Arc::new(Mutex::new(0usize));
+            let dir_manager = LazyDirManager::new();
+
+            let entries: Vec<_> = fs::read_dir(&base_path)
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_file())
+                .collect();
+
+            entries.par_iter().for_each(|entry| {
+                let file_path = entry.path();
+                let filename = match file_path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n,
+                    None => {
+                        *files_skipped.lock().unwrap() += 1;
+                        return;
+                    }
+                };
+                if skip_patterns.iter().any(|p| filename.contains(p)) {
+                    *files_skipped.lock().unwrap() += 1;
+                    return;
+                }
+                if skip_hidden && is_hidden(&file_path) {
+                    *files_skipped.lock().unwrap() += 1;
+                    return;
+                }
+                let extension = file_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_lowercase())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let (_cat, folder_name) = ext_map
+                    .get(&extension)
+                    .cloned()
+                    .unwrap_or_else(|| ("extras".to_string(), "Extras".to_string()));
+                let target_dir = base_path.join(&folder_name);
+                let target_path = target_dir.join(filename);
+                let final_target = {
+                    if !target_path.exists() {
+                        target_path.clone()
+                    } else {
+                        let parent = target_path.parent().unwrap();
+                        let stem = target_path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("file");
+                        let ext = target_path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .map(|e| format!(".{e}"))
+                            .unwrap_or_default();
+                        match (1..1000usize)
+                            .map(|i| parent.join(format!("{stem}_{i}{ext}")))
+                            .find(|p| !p.exists())
+                        {
+                            Some(p) => p,
+                            None => {
+                                *files_failed.lock().unwrap() += 1;
+                                return;
                             }
                         }
-                        KeyCode::Char('d') => {
-                            if matches!(self.state, AppState::Ready) {
-                                self.start_organization(true)?;
-                            }
-                        }
-                        _ => {}
+                    }
+                };
+                if !dry_run {
+                    if dir_manager.ensure_dir_exists(&target_dir).is_err() {
+                        *files_failed.lock().unwrap() += 1;
+                        return;
+                    }
+                    if fs::rename(&file_path, &final_target).is_err() {
+                        *files_failed.lock().unwrap() += 1;
+                        return;
                     }
                 }
-            }
-        }
-        Ok(())
+                let moved_now = {
+                    let mut g = files_organized.lock().unwrap();
+                    *g += 1;
+                    *g
+                };
+                *category_counts
+                    .lock()
+                    .unwrap()
+                    .entry(folder_name.clone())
+                    .or_insert(0) += 1;
+                // Send a structured progress token so tick() can parse live counts
+                let _ = tx.send(Progress::Update(format!("moved:{moved_now}:{folder_name}")));
+            });
+
+            let x = OrganizeResult {
+                files_organized: *files_organized.lock().unwrap(),
+                files_skipped: *files_skipped.lock().unwrap(),
+                files_failed: *files_failed.lock().unwrap(),
+                category_counts: category_counts.lock().unwrap().clone(),
+            };
+            x
+        }));
     }
 
-    fn start_organization(&mut self, dry_run: bool) -> io::Result<()> {
-        self.state = AppState::Organizing;
-        let result = self
+    fn draw_ready(&self, f: &mut Frame, cols: [Rect; 3]) {
+        // Left: path + category list
+        let cat_count = self.organizer.config.categories.len();
+        let mut folder_names: Vec<String> = self
             .organizer
-            .organize_directory(&self.base_path, dry_run)?;
+            .config
+            .categories
+            .values()
+            .map(|c| {
+                c.folder_name
+                    .clone()
+                    .unwrap_or_else(|| "Unnamed".to_string())
+            })
+            .collect();
+        folder_names.sort();
+        let folder_summary = folder_names.join(" ");
+        let lines = vec![
+            tui::blank(),
+            tui::section_label("target"),
+            tui::path_line(&self.base_path.display().to_string()),
+            tui::blank(),
+            tui::section_label("categories configured"),
+            tui::stat("total", cat_count.to_string(), tui::INFO),
+            tui::blank(),
+            tui::header(&folder_summary, tui::MUTED),
+        ];
+        f.render_widget(tui::paragraph(lines, "scan target"), cols[0]);
+
+        // Mid: how it works
+        let mut mid = vec![
+            tui::blank(),
+            tui::header("ready to organize", tui::OK),
+            tui::blank(),
+            tui::bullet("groups files by extension into folders"),
+            tui::bullet(format!("{cat_count} categories configured")),
+            tui::bullet("creates destination dirs on demand"),
+            tui::bullet("renames on collision (file_1, file_2 …)"),
+            tui::blank(),
+        ];
+        for patterns in &self.organizer.config.skip_patterns {
+            mid.push(tui::bullet(patterns.clone()))
+        }
+        tui::header("press [s] to run  or  [d] for dry run", tui::MUTED);
+        f.render_widget(tui::paragraph(mid, "overview"), cols[1]);
+
+        // Right: options snapshot
+        // let mut right = vec![
+        //     tui::blank(),
+        //     tui::section_label("mode"),
+        //     tui::stat("collision", "rename", tui::WARN),
+        //     tui::stat("hidden files", "skip", tui::MUTED),
+        //     tui::blank(),
+        //     tui::section_label("skip patterns"),
+        //     ];
+        // for patterns in &self.organizer.config.skip_patterns {
+        //     right.push(tui::bullet(patterns.clone()))
+        // }
+        // f.render_widget(tui::paragraph(right, "options"), cols[2]);
+    }
+
+    fn draw_organizing(&self, f: &mut Frame, cols: [Rect; 3], msg: &str) {
+        // Tyr is fast af boi fast as f...
+        // drawing anything just makes it look awakward
+        tui::busy_gauge(f, cols[0], "progress", msg, tui::INFO, self.tick);
+    }
+
+    fn draw_complete(&self, f: &mut Frame, cols: [Rect; 3], result: &OrganizeResult) {
+        // Left: summary numbers
+        let left = vec![
+            tui::blank(),
+            tui::header("✓ organization complete", tui::OK),
+            tui::blank(),
+            tui::stat("moved", result.files_organized.to_string(), tui::OK),
+            tui::stat("skipped", result.files_skipped.to_string(), tui::WARN),
+            tui::stat("failed", result.files_failed.to_string(), tui::ERR),
+        ];
+        f.render_widget(tui::paragraph(left, "results"), cols[0]);
+
+        // category breakdown as bar chart
+        let mut entries: Vec<(String, usize, Color)> = result
+            .category_counts
+            .iter()
+            .map(|(k, v)| (k.clone(), *v, tui::INFO))
+            .collect();
+        entries.sort_by(|a, b| b.1.cmp(&a.1));
+        tui::bar_chart(f, cols[1], "by category", &entries);
+    }
+
+    /// Auto-organize files without UI interaction.
+    pub fn auto_organize(&mut self) -> io::Result<()> {
+        let result = self.organizer.organize_directory(&self.base_path, false)?;
+
+        println!("\n\u{2726} Organization Complete!\n");
+        println!("Summary:");
+        println!("   \u{2022} Files organized: {}", result.files_organized);
+        println!("   \u{2022} Files skipped:   {}", result.files_skipped);
+        println!("   \u{2022} Files failed:    {}", result.files_failed);
+
+        if !result.category_counts.is_empty() {
+            println!("\nCategories:");
+            let mut sorted: Vec<_> = result.category_counts.iter().collect();
+            sorted.sort_by(|a, b| b.1.cmp(a.1));
+            for (category, count) in sorted {
+                println!("   {category:<20} \u{2192} {count} files");
+            }
+        }
+
         self.state = AppState::Complete(result);
         Ok(())
     }
+}
 
-    fn draw_ui(&self, f: &mut ratatui::Frame) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),
-                Constraint::Min(10),
-                Constraint::Length(5),
-                Constraint::Length(3),
-            ])
-            .split(f.size());
-
-        // Title
-        let title = Paragraph::new(" Tyr - Extension-Based File Organizer")
-            .style(
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .block(Block::default().borders(Borders::ALL));
-        f.render_widget(title, chunks[0]);
-
-        // Main content
-        match &self.state {
-            AppState::Ready => self.draw_ready_state(f, chunks[1]),
-            AppState::Organizing => self.draw_organizing_state(f, chunks[1]),
-            AppState::Complete(result) => self.draw_complete_state(f, chunks[1], result),
-        }
-
-        // Logs
-        self.draw_logs(f, chunks[2]);
-
-        // Controls
-        self.draw_controls(f, chunks[3]);
-    }
-
-    fn draw_ready_state(&self, f: &mut ratatui::Frame, area: Rect) {
-        let categories = self.organizer.config.categories.len();
-
-        let text = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                " Ready to Organize Files",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(vec![
-                Span::raw("Directory: "),
-                Span::styled(
-                    self.base_path.display().to_string(),
-                    Style::default().fg(Color::Yellow),
-                ),
-            ]),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "How it works:",
-                Style::default().fg(Color::Cyan),
-            )]),
-            Line::from("  • Organizes files by extension into folders"),
-            Line::from(format!(
-                "  • {} categories configured (Images, Videos, Documents, etc.)",
-                categories
-            )),
-            Line::from("  • Creates folders only when needed"),
-            Line::from("  • Handles naming conflicts automatically"),
-            Line::from(""),
-            Line::from(Span::styled(
-                " Press 's' to start organizing",
-                Style::default().fg(Color::Green),
-            )),
-            Line::from(Span::styled(
-                " Press 'd' for dry run (preview only)",
-                Style::default().fg(Color::Yellow),
-            )),
-        ];
-
-        let widget =
-            Paragraph::new(text).block(Block::default().borders(Borders::ALL).title(" Status "));
-        f.render_widget(widget, area);
-    }
-
-    fn draw_organizing_state(&self, f: &mut ratatui::Frame, area: Rect) {
-        let gauge = Gauge::default()
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Organizing Files "),
-            )
-            .gauge_style(Style::default().fg(Color::Cyan))
-            .label(" Sorting files by extension...")
-            .percent(50);
-        f.render_widget(gauge, area);
-    }
-
-    fn draw_complete_state(&self, f: &mut ratatui::Frame, area: Rect, result: &OrganizeResult) {
-        let mut lines = vec![
-            Line::from(Span::styled(
-                "✦ Organization Complete!",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(vec![
-                Span::raw(" Files organized: "),
-                Span::styled(
-                    result.files_organized.to_string(),
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
-            Line::from(vec![
-                Span::raw(" Files skipped: "),
-                Span::styled(
-                    result.files_skipped.to_string(),
-                    Style::default().fg(Color::Yellow),
-                ),
-            ]),
-            Line::from(vec![
-                Span::raw(" Files failed: "),
-                Span::styled(
-                    result.files_failed.to_string(),
-                    Style::default().fg(Color::Red),
-                ),
-            ]),
-            Line::from(""),
-            Line::from(Span::styled(
-                " Category Summary:",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-        ];
-
-        // Sort categories by count for better display
-        let mut sorted_categories: Vec<_> = result.category_counts.iter().collect();
-        sorted_categories.sort_by(|a, b| b.1.cmp(a.1));
-
-        for (category, count) in sorted_categories.iter().take(10) {
-            let icon = match category.as_str() {
-                name if name.contains("Image") => "",
-                name if name.contains("Video") => "",
-                name if name.contains("Audio") => "",
-                name if name.contains("Document") => "",
-                name if name.contains("Code") => "",
-                name if name.contains("Archive") => "",
-                _ => "",
-            };
-
-            lines.push(Line::from(vec![
-                Span::raw(format!("  {} ", icon)),
-                Span::styled(format!("{:15}", category), Style::default().fg(Color::Cyan)),
-                Span::raw(" → "),
-                Span::styled(
-                    format!("{} files", count),
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]));
-        }
-
-        if sorted_categories.len() > 10 {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                format!("... and {} more categories", sorted_categories.len() - 10),
-                Style::default().fg(Color::Gray),
-            )));
-        }
-
-        let widget =
-            Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" Results "));
-        f.render_widget(widget, area);
-    }
-
-    fn draw_logs(&self, f: &mut ratatui::Frame, area: Rect) {
-        let _logs = self.organizer.get_logger().get_logs();
-        let items: Vec<ListItem> = _logs
-            .iter()
-            .rev()
-            .take(3)
-            .map(|log| {
-                let (style, icon) = match log.level {
-                    LogLevel::Success => (Style::default().fg(Color::Green), "✓"),
-                    LogLevel::Error => (Style::default().fg(Color::Red), "✗"),
-                    LogLevel::Warning => (Style::default().fg(Color::Yellow), "⚠"),
-                    LogLevel::Info => (Style::default().fg(Color::Gray), "ℹ"),
-                };
-                ListItem::new(format!("{} {}", icon, log.message)).style(style)
-            })
-            .collect();
-
-        let list = List::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Recent Activity "),
-        );
-        f.render_widget(list, area);
-    }
-
-    fn draw_controls(&self, f: &mut ratatui::Frame, area: Rect) {
-        let controls = match &self.state {
-            AppState::Ready => " 's' Start | 'd' Dry Run | 'q' Quit",
-            AppState::Organizing => " Organizing... Please wait",
-            AppState::Complete(_) => " 'q' Quit (or press any key to exit)",
-        };
-
-        let widget = Paragraph::new(controls)
-            .style(Style::default().fg(Color::Yellow))
-            .block(Block::default().borders(Borders::ALL).title(" Controls "));
-        f.render_widget(widget, area);
-    }
-
-    /// Auto-organize files without UI interaction
-    /// Automatically starts organization (equivalent to pressing 's')
-    pub fn auto_organize(&mut self) -> io::Result<()> {
-        // Start organization (non-dry-run mode)
-        self.start_organization(false)?;
-
-        // Display results
-        if let AppState::Complete(result) = &self.state {
-            println!("\n✦ Organization Complete!\n");
-            println!("Summary:");
-            println!("   • Files organized: {}", result.files_organized);
-            println!("   • Files skipped:   {}", result.files_skipped);
-            println!("   • Files failed:    {}", result.files_failed);
-
-            if !result.category_counts.is_empty() {
-                println!("\nCategories:");
-
-                // Sort categories by count
-                let mut sorted_categories: Vec<_> = result.category_counts.iter().collect();
-                sorted_categories.sort_by(|a, b| b.1.cmp(a.1));
-
-                for (category, count) in sorted_categories {
-                    let icon = match category.as_str() {
-                        name if name.contains("Image") => "",
-                        name if name.contains("Video") => "",
-                        name if name.contains("Audio") || name.contains("Music") => "🎵",
-                        name if name.contains("Document") => "",
-                        name if name.contains("Code") => "",
-                        name if name.contains("Archive") => "",
-                        name if name.contains("Spreadsheet") => "",
-                        name if name.contains("Presentation") => "",
-                        _ => "",
-                    };
-                    println!("   {} {:20} → {} files", icon, category, count);
+impl App for TuiApp {
+    fn tick(&mut self) {
+        self.tick = self.tick.wrapping_add(1);
+        if let AppState::Organizing(job) = &mut self.state {
+            // Drain all pending messages; parse structured ones for live counters
+            // (job.poll() only returns Some on Done, so we peek the channel ourselves
+            //  via the public .message field which the framework already updates)
+            if let Some(result) = job.poll() {
+                self.live_moved = result.files_organized;
+                self.live_skipped = result.files_skipped;
+                self.live_failed = result.files_failed;
+                self.state = AppState::Complete(result);
+                return;
+            }
+            // Parse the latest message for live moved count
+            let msg = job.message.clone();
+            if let Some(rest) = msg.strip_prefix("moved:") {
+                let mut parts = rest.splitn(2, ':');
+                if let Some(n) = parts.next().and_then(|s| s.parse::<usize>().ok()) {
+                    self.live_moved = n;
                 }
             }
-
-            // Show recent logs
-            let _logs = self.organizer.get_logger().get_logs();
         }
+    }
 
-        Ok(())
+    fn needs_clear(&self) -> bool {
+        self.state_changed
+    }
+
+    fn on_key(&mut self, key: KeyCode) -> Flow {
+        match (&self.state, key) {
+            (AppState::Organizing(_), KeyCode::Char('q') | KeyCode::Esc) => Flow::Continue,
+            (_, KeyCode::Char('q') | KeyCode::Esc) => Flow::Quit,
+            (AppState::Ready, KeyCode::Char('s')) => {
+                self.start_organization(false);
+                Flow::Continue
+            }
+            (AppState::Ready, KeyCode::Char('d')) => {
+                self.start_organization(true);
+                Flow::Continue
+            }
+            _ => Flow::Continue,
+        }
+    }
+
+    fn draw(&self, f: &mut Frame) {
+        let rows = tui::vsplit(
+            f.area(),
+            &[
+                Constraint::Length(3),
+                Constraint::Min(10),
+                Constraint::Length(3),
+            ],
+        );
+
+        let bindings: &[(&str, &str)] = match &self.state {
+            AppState::Ready => &[("s", "start"), ("d", "dry run"), ("q", "quit")],
+            AppState::Organizing(_) => &[("...", "organizing — please wait")],
+            AppState::Complete(_) => &[("q", "quit")],
+        };
+
+        let (status, status_color) = match &self.state {
+            AppState::Ready => ("ready", tui::OK),
+            AppState::Organizing(_) => ("running", tui::INFO),
+            AppState::Complete(_) => ("done", tui::OK),
+        };
+
+        let cols = tui::screen_frame(
+            f,
+            rows[0],
+            rows[1],
+            rows[2],
+            "extension-based organizer",
+            status,
+            status_color,
+            bindings,
+            40,
+            25,
+        );
+
+        match &self.state {
+            AppState::Ready => self.draw_ready(f, cols),
+            AppState::Organizing(job) => self.draw_organizing(f, cols, &job.message),
+            AppState::Complete(result) => self.draw_complete(f, cols, result),
+        }
     }
 }
 
