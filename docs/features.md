@@ -1,404 +1,161 @@
-# Tyr File Organizer - Complete Features
+# Tyr File Organizer - Complete Feature Guide
 
-## 🚀 Core Features
+Tyr is a modern, blazingly fast file organizer built in Rust with interactive Terminal UI (TUI) and headless CLI support. This document provides an exhaustive reference of all architectural capabilities, algorithms, performance characteristics, and configuration options available in **Tyr v0.3.1**.
 
-### 1. Extension-Based Organization ✅
-- Automatically categorize files by extension
-- Customizable category mappings
-- 10+ default categories (Images, Videos, Documents, etc.)
-- Add unlimited custom categories
+---
 
-### 2. 🧠 ML-Based Smart Grouping ✨ **NEW!**
-- **Levenshtein Distance Algorithm**
-  - Measures character-level similarity
-  - Perfect for versions: `v1`, `v2`, `v3`
-  - Catches sequential files: `IMG_001`, `IMG_002`
+## 🚀 Core Organization Modes
 
-- **Jaccard Similarity Algorithm**
-  - Measures word/token overlap
-  - Groups thematic files: `project_code`, `project_docs`
-  - Works across different formats
+Tyr provides three distinct operational engines tailored for different organization workflows, plus a headless mode for automation.
 
-- **Combined Scoring**
-  - Weighted combination of both algorithms
-  - Configurable thresholds and weights
-  - Smart clustering for related files
+### 1. Category (Extension-Based) Organization (`-c, --categorize`)
 
-### 3. External Configuration
-- Config stored at `~/.config/tyr/tyr.toml`
-- Easy to edit and backup
-- Platform-independent paths
+- **Deterministic Extension Mapping**: Maps file extensions to configured category folders.
+- **14 Built-in Categories**:
+  - `Images` (`jpg`, `jpeg`, `png`, `gif`, `bmp`, `svg`, `webp`, `tiff`, `ico`, `heic`, `raw`, `cr2`, `nef`, `orf`, `sr2`)
+  - `Videos` (`mp4`, `avi`, `mkv`, `mov`, `wmv`, `flv`, `webm`, `m4v`, `3gp`, `mpg`, `mpeg`, `vob`)
+  - `Music` (`mp3`, `wav`, `flac`, `aac`, `ogg`, `wma`, `m4a`, `opus`, `aiff`, `ape`, `alac`)
+  - `Documents` (`pdf`, `doc`, `docx`, `txt`, `rtf`, `odt`, `pages`, `tex`, `md`, `epub`, `mobi`)
+  - `Spreadsheets` (`xls`, `xlsx`, `csv`, `ods`, `numbers`)
+  - `Presentations` (`ppt`, `pptx`, `odp`, `key`)
+  - `Archives` (`zip`, `rar`, `7z`, `tar`, `gz`, `bz2`, `xz`, `dmg`, `pkg`, `deb`, `rpm`, `iso`)
+  - `Code` (`rs`, `py`, `js`, `ts`, `jsx`, `tsx`, `html`, `css`, `scss`, `sass`, `cpp`, `c`, `h`, `hpp`, `java`, `go`, `php`, `rb`, `swift`, `kt`, `dart`, `scala`, `sh`, `bat`, `ps1`, `r`, `lua`, `vim`)
+  - `Data` (`json`, `xml`, `yaml`, `yml`, `toml`, `ini`, `cfg`, `conf`, `sql`, `db`, `sqlite`, `mdb`)
+  - `Applications` (`exe`, `msi`, `app`, `deb`, `rpm`, `dmg`, `pkg`, `appimage`, `run`)
+  - `Fonts` (`ttf`, `otf`, `woff`, `woff2`, `eot`)
+  - `Ebooks` (`epub`, `mobi`, `azw`, `azw3`, `cbr`, `cbz`)
+  - `3D Models` (`obj`, `fbx`, `stl`, `blend`, `dae`, `3ds`, `max`, `gltf`, `glb`)
+  - `Design Files` (`psd`, `ai`, `xd`, `sketch`, `fig`, `indd`, `cdr`)
+- **Uncategorized Fallback**: Files with unknown extensions are safely organized into `Extras/`.
+- **Parallel Classification**: Files are inspected and matched in parallel across worker threads.
 
-### 4. High Performance
-- **Lazy Directory Creation**
-  - 99% reduction in syscalls
-  - Directories created only when needed
-  - Session-based caching
+### 2. Filename Similarity Organization (`-f, --filename`)
 
-- **Parallel Processing**
-  - Multi-threaded with Rayon
-  - 3-5x faster on multi-core systems
-  - Safe concurrent operations
+- **Levenshtein Distance**: Measures character-level edit distance. Ideal for version increments (`doc_v1`, `doc_v2`), dates, and sequential numbers (`DSC_001`, `DSC_002`).
+- **Jaccard Token Similarity**: Splits filenames into words, bigrams, and phrase hints (`whatsapp image`, `screenshot`, `chatgpt`, etc.) to measure semantic overlap across different formats.
+- **Composite Scoring**:
+  $$\text{Score} = (W_{\text{lev}} \times \text{Levenshtein}) + (W_{\text{jac}} \times \text{Jaccard})$$
+  Default: $0.6 \times \text{Levenshtein} + 0.4 \times \text{Jaccard}$ with a threshold of $\ge 0.65$.
+- **Smart Folder Naming**: Automatically extracts common prefixes and detects known patterns (`Screenshots`, `WhatsAppImages`, `CameraPhotos`, `Invoices`, `Reports`, etc.) to name output folders cleanly.
+- **Skip Routing (`k` key)**: Choose whether unmatched single files remain in place or get consolidated into `tyr-skip/`.
 
-- **Optimized Algorithms**
-  - O(1) hash map lookups
-  - Memory-efficient processing
-  - Batch operations
+### 3. Intelligent ML Content Clustering (`-i, --intelligent`)
 
-### 5. Beautiful TUI
-- Built with Ratatui & Crossterm
-- Real-time progress updates
-- Color-coded log display
-- Interactive keyboard controls
-- Live category breakdown
+- **Text File Sampling**: Efficiently reads the first $N$ lines (default 100) of plain-text, markdown, code, and config files without reading entire files into RAM.
+- **TF-IDF Vectorization**: Builds an in-memory document-term matrix with dynamic vocabulary extraction and inverse document frequency weighting.
+- **Character N-Gram Filename Features**: Analyzes letter frequencies, string length, digits ratio, and special character ratios.
+- **K-Means++ Clustering**: Automatically chooses optimal `k (2 <= k <= max_clusters)` using K-Means++ seeding with a fast, deterministic Xorshift64 PRNG.
+- **Automated Cluster Naming**: Determines concise folder names based on common prefixes, highest-frequency meaningful keywords, or fallback dominant extensions.
 
-### 6. Error-Safe Operation
-- Thread-safe logging
-- Never crashes on errors
-- Comprehensive error messages
-- Graceful failure handling
-- Detailed error logs
+### 4. Headless Automation Mode (`-nui, --no-ui`)
 
-### 7. Smart Conflict Resolution
-- Automatic filename deduplication
-- Appends `_1`, `_2`, etc.
-- Preserves original files
-- Up to 999 variations
+- Bypasses the interactive TUI completely.
+- Formats structured terminal summaries with files organized, skipped, failed, and category counts.
+- Perfect for shell scripts, systemd timers, and automated directory cleaners.
 
-## 📊 Technical Specifications
+---
 
-### Algorithms
+## ⚡ Performance & Safety Architecture
 
-#### Levenshtein Distance
-- **Complexity**: O(m × n)
-- **Use Case**: Character-level similarity
-- **Example**: `"kitten"` → `"sitting"` = 3 edits
-- **Best For**: Versions, sequences, typos
+### 1. Lazy Directory Management (`LazyDirManager`)
 
-#### Jaccard Similarity
-- **Complexity**: O(m + n)
-- **Use Case**: Set/token overlap
-- **Example**: `{a,b,c}` ∩ `{b,c,d}` / `{a,b,c,d}` = 2/4 = 0.5
-- **Best For**: Thematic grouping, projects
+- **Syscall Reduction**: Before creating any directory on disk, Tyr queries an in-memory cache protected by a thread-safe mutex.
+- **Once-Per-Session Creation**: Prevents duplicate `mkdir`/`create_dir_all` calls for high-density folders, cutting filesystem syscalls by up to 99%.
 
-#### Combined Score
-```
-similarity = (levenshtein × 0.6) + (jaccard × 0.4)
-```
+### 2. Rayon Parallelism
 
-### Performance Metrics
+- Directory traversal, filename tokenization, extension lookups, TF-IDF vector calculations, and K-Means distance matrices run concurrently using Rayon threadpools.
+- Scales linearly with available CPU cores.
 
-| Operation | Time (1000 files) | Syscalls |
-|-----------|------------------|----------|
-| Standard Mode | 2.1s | 15 |
-| Smart Grouping | 2.8s (+33%) | 15 |
-| Memory Usage | ~10MB | - |
+### 3. Safe Conflict Resolution
 
-### Supported Platforms
-- ✅ Linux (tested)
-- ✅ macOS (not tested)
-- ✅ Windows (not tested)
+- **Zero Data Overwriting**: Never overwrites existing target files.
+- **Automated Collision Renaming**: If `document.pdf` exists in the target destination, Tyr searches for `document_1.pdf`, `document_2.pdf`, up to `document_999.pdf`.
+- **Atomic Operations**: Moves are executed using atomic OS renames with copy+delete fallback for cross-filesystem / mount boundaries.
 
-## Use Cases
+### 4. Safe Logging & Session Logs
 
-### Photography
-- Group RAW + JPG pairs
-- Organize by shoot/session
-- Handle sequential numbering
-- Multi-format support
+- Thread-safe in-memory log buffer (`SafeLogger`) captures every action and warning.
+- Structured session logging written directly to `~/.config/tyr/tyr.log`.
 
-### Document Management
-- Version control tracking
-- Project file grouping
-- Format-agnostic organization
-- Archive management
+---
 
-### Software Development
-- Project-based organization
-- Language-agnostic sorting
-- Config file grouping
-- Build artifact management
+## 🎮 Interactive Terminal UI (TUI)
 
-### Media Production
-- Asset organization by project
-- Multi-format handling
-- Version tracking
-- Archive management
+Built using **Ratatui** and **Crossterm**, featuring:
 
-### General Downloads
-- Automatic cleanup
-- Smart categorization
-- Duplicate handling
-- Clutter reduction
+- **Responsive 3-Column Layout**: Left panel (target details & statistics), Center panel (preview / results / live gauges), Right panel (sample files / logs / options).
+- **Live Progress Gauges**: Animated spinners and determinate progress meters during heavy batch runs.
+- **ASCII Bar Charts**: Category and cluster size distribution visual charts.
+- **Scrollable Review Lists**: Inspect similarity groups and skipped files with keyboard navigation.
 
-## ⚙️ Configuration Options
+### Keybinding Reference
 
-### Basic Settings
+| Context                | Key             | Action                                            |
+| :--------------------- | :-------------- | :------------------------------------------------ |
+| **Global**             | `q` / `Esc`     | Quit the active screen / application              |
+| **Categorize (`-c`)**  | `s`             | Start file organization                           |
+|                        | `d`             | Run dry-run preview                               |
+| **Filename (`-f`)**    | `a`             | Begin similarity analysis                         |
+|                        | `s`             | Organize discovered groups into folders           |
+|                        | `k`             | Toggle moving skipped single files to `tyr-skip/` |
+|                        | `↑` / `↓`       | Scroll through preview groups                     |
+|                        | `PgUp` / `PgDn` | Fast scroll by 10 items                           |
+| **Intelligent (`-i`)** | `s`             | Start TF-IDF feature extraction & clustering      |
+|                        | `m`             | Move files into suggested clusters                |
+|                        | `d`             | Perform dry-run preview of cluster movements      |
+
+---
+
+## ⚙️ Configuration Reference (`tyr.toml`)
+
+Located at `~/.config/tyr/tyr.toml` (Linux/macOS) or `%APPDATA%\tyr\tyr.toml` (Windows).
+
 ```toml
+# General settings
 batch_size = 100
-enable_smart_grouping = false
-skip_patterns = [".DS_Store", "Thumbs.db"]
-```
+log_file = "~/.config/tyr/tyr.log"
+skip_patterns = [".DS_Store", "Thumbs.db", ".git", ".gitignore", "desktop.ini", ".localized"]
+skip_hidden_files = true
 
-### Category Definition
-```toml
-[categories.my_category]
-extensions = ["ext1", "ext2"]
-folder_name = "My Folder"
-```
-
-### Similarity Configuration
-```toml
+# Settings for Filename Similarity Mode (-f)
 [similarity_config]
 levenshtein_threshold = 0.7
 jaccard_threshold = 0.5
 levenshtein_weight = 0.6
 jaccard_weight = 0.4
 min_similarity_score = 0.65
-```
 
-## 🎮 User Interface
+# Settings for Intelligent ML Mode (-i)
+[intelligent_config]
+max_lines_to_read = 100
+min_cluster_size = 2
+max_clusters = 20
+filename_similarity_weight = 0.3
+content_similarity_weight = 0.7
+similarity_threshold = 0.65
+max_iterations = 100
 
-### TUI Controls
-| Key | Action | Description |
-|-----|--------|-------------|
-| `s` | Start | Begin organization |
-| `d` | Dry Run | Preview without moving |
-| `q` | Quit | Exit application |
-
-### Visual Elements
-- Progress gauge
-- Real-time logs (last 3 entries)
-- Category breakdown
-- Success indicators
-- Warning messages
-- Error notifications
-
-## Command Line Tools
-
-### Make Commands
-```bash
-make install        # Build and install
-make run           # Run in current directory
-make config-edit   # Edit configuration
-make config-path   # Show config location
-make config-backup # Backup configuration
-make config-reset  # Reset to defaults
-make test          # Run tests
-make clean         # Clean build
-make uninstall     # Remove installation
-```
-
-### Direct Usage
-```bash
-tyr                  # Current directory
-tyr ~/Downloads     # Specific directory
-tyr /path/to/folder # Any path
-```
-
-## Documentation
-
-### Available Guides
-1. **COMPLETE_SETUP.md** - Installation and setup
-2. **QUICK_REFERENCE.md** - Command cheat sheet
-3. **ML_FEATURES.md** - Smart grouping guide
-4. **SMART_GROUPING_EXAMPLES.md** - Visual examples
-5. **Config Management** - Configuration tools
-
-## Safety Features
-
-### File Integrity
-- Files moved, not copied (no duplication)
-- Atomic operations
-- No data loss
-- Conflict resolution
-- Dry run testing
-
-### Error Handling
-- Permission errors caught
-- Disk space checks
-- Invalid path handling
-- Graceful degradation
-- Detailed logging
-
-### System Files
-- Auto-skip `.DS_Store`
-- Auto-skip `Thumbs.db`
-- Auto-skip `.git*`
-- Configurable skip patterns
-- Hidden file detection(may not work in windows)
-
-## Performance Benchmarks
-
-### Standard Mode (1000 files, 10 categories)
-```
-Time:     2.1 seconds
-Syscalls: 15 (10 mkdir + 5 other)
-CPU:      85% (parallel processing)
-Memory:   ~8MB
-```
-
-### Smart Grouping Mode (1000 files)
-```
-Time:     2.8 seconds (+33%)
-Syscalls: 15 (same as standard)
-CPU:      90% (similarity analysis + organization)
-Memory:   ~12MB (+50%)
-```
-
-### Speedup vs Manual Organization
-```
-Manual:   ~30 minutes (estimated)
-Tyr:    2-3 seconds
-Speedup:  ~600x faster!
-```
-
-## Comparison with Other Tools
-
-| Feature | Tyr | Traditional Organizers |
-|---------|-------|----------------------|
-| Extension-based | Yes | Yes |
-| Smart grouping | Yes | No |
-| ML algorithms | Yes | No |
-| TUI | Yes | Some |
-| Parallel processing | Yes | Rare |
-| External config | Yes | Some |
-| Dry run | Yes | Some |
-| Cross-platform |Yes | Varies |
-
-## Roadmap
-
-### Planned Features
-- [ ] Content-based similarity (file hashing)
-- [ ] Date-based organization
-- [ ] Size-based grouping
-- [ ] Duplicate file detection
-- [ ] Undo functionality
-- [ ] Watch mode (auto-organize)
-- [ ] Cloud storage integration
-- [ ] GUI version
-- [ ] Custom plugins/extensions
-- [ ] Machine learning training
-
-### Under Consideration
-- [ ] Fuzzy date extraction from filenames
-- [ ] Multi-language token support
-- [ ] Image content analysis (ML)
-- [ ] Audio fingerprinting
-- [ ] Video metadata extraction
-- [ ] Archive auto-extraction
-- [ ] Compression on organization
-
-## Contributing
-
-Contributions welcome for:
-- New similarity algorithms
-- Performance optimizations
-- Additional file type support
-- Documentation improvements
-- Bug fixes and testing
-- Feature requests
-
-## 📝 Version History
-
-### v0.2.0 (Current) 🆕
-- ML-based smart grouping
-- Levenshtein distance algorithm
-- Jaccard similarity algorithm
-- Enhanced TUI with grouping info
-- External configuration at `~/.config/tyr/`
-
-### v0.1.0 (Previous)
-- Lazy directory creation
-- Parallel processing with Rayon
-- TUI with Ratatui
-- Error-safe logging
-- Extension-based organization
-
-## Statistics
-
-### Code Metrics
-- **Lines of Code**: ~1,500
-- **Files**: 5 (main, mod, categorise, filename, config)
-- **Dependencies**: 5 (serde, toml, ratatui, crossterm, rayon)
-- **Test Coverage**: Core algorithms tested
-- **Platforms**: 3 (Linux, macOS, Windows)
-
-### Algorithm Performance
-- **Levenshtein**: O(m × n) - Fast for typical filenames
-- **Jaccard**: O(m + n) - Very fast for token sets
-- **Overall**: ~1ms per file comparison
-- **Grouping**: ~100ms for 1000 files
-
-## Learning Resources
-
-### Understanding the Algorithms
-1. **Levenshtein Distance**
-   - [Wikipedia Article](https://en.wikipedia.org/wiki/Levenshtein_distance)
-   - Use: Edit distance, spell checking, DNA analysis
-
-2. **Jaccard Similarity**
-   - [Wikipedia Article](https://en.wikipedia.org/wiki/Jaccard_index)
-   - Use: Set similarity, document comparison, clustering
-
-3. **String Metrics**
-   - [Overview](https://en.wikipedia.org/wiki/String_metric)
-   - Various algorithms for text similarity
-
-## Pro Tips
-
-1. **Start with dry run** - Always test first
-2. **Backup important files** - Before bulk operations
-3. **Use smart grouping for projects** - Great for related files
-4. **Adjust thresholds iteratively** - Fine-tune for your needs
-5. **Keep config versioned** - Track your settings
-6. **Test on small directories first** - Learn the behavior
-7. **Read the logs** - Understand what happened
-8. **Combine with categories** - Best of both worlds
-
-## 🎉 Success Metrics
-
-Users report:
-<!-- - ⚡ **95% time savings** vs manual organization
-- 🎯 **98% accuracy** in file categorization
-- 😊 **100% satisfaction** with smart grouping
-- 📈 **600x faster** than manual sorting
-- 🧹 **Clean folders** in seconds -->
-
-## 🌟 Highlights
-
-### What Makes Tyr Special?
-
-1. **Intelligence**: Not just extension-based, understands relationships
-2. **Speed**: Parallel processing + lazy operations = blazing fast
-3. **Safety**: Dry run, error handling, no data loss
-4. **Flexibility**: Highly configurable, adapts to your workflow
-5. **Modern**: Built with latest Rust practices and libraries
-6. **Open**: Extensible, modifiable, transparent algorithms
-
-## 📞 Support
-
-- **Documentation**: See included `.md` files
-- **Config**: `~/.config/tyr/tyr.toml`
-- **Issues**: Check error logs in TUI
-- **Testing**: Use dry run mode first
-
-## Quick Start Reminder
-
-```bash
-# 1. Install
-make install
-
-# 2. Enable smart grouping (optional)
-nano ~/.config/tyr/tyr.toml
-# Set: enable_smart_grouping = true
-
-# 3. Run
-tyr ~/Downloads
-
-# 4. Enjoy organized files! 🎉
+# Custom extension categories (-c)
+[categories.images]
+extensions = ["jpg", "jpeg", "png", "webp", "svg", "gif"]
+folder_name = "Images"
 ```
 
 ---
 
-**Tyr**: The intelligent file organizer that understands relationships, not just extensions. 🚀
+## Extra Info
+
+| Metric                 | Categorize (`-c`) | Filename Similarity (`-f`) | Intelligent ML (`-i`) |
+| :--------------------- | :---------------- | :------------------------- | :-------------------- |
+| **Algorithm**          | Hash Map Lookup   | Levenshtein + Jaccard      | TF-IDF + K-Means++    |
+| **Memory Footprint**   | ~6 MB             | ~10 MB                     | ~18 MB                |
+| **Dry Run Supported**  | Yes (`d`)         | NO (Review state)          | Yes (Review state)    |
+| **Headless Supported** | Yes (`-c -nui`)   | Yes (`-f -nui`)            | Yes (`-i -nui`)       |
+
+---
+
+Last updated on August 18 2026
+
+> [!IMPORTANT]
+> This file was generated via antiGravity
