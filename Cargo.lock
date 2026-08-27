@@ -1746,7 +1746,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "tyr"
-version = "0.3.1"
+version = "0.4.6"
 dependencies = [
  "chrono",
  "clap",
