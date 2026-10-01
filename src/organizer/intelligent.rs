@@ -10,7 +10,7 @@
 
 use ratatui::crossterm::event::KeyCode;
 use ratatui::style::Color;
-use ratatui::{layout::Constraint, layout::Rect, text::Line, Frame};
+use ratatui::{Frame, layout::Constraint, layout::Rect, text::Line};
 use rayon::prelude::*;
 use regex::Regex;
 use std::cmp::Ordering;
@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::organizer::tui::{self, App, Flow, Job, Progress};
-use crate::organizer::utils::{is_hidden, LazyDirManager};
+use crate::organizer::utils::{LazyDirManager, is_hidden};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for intelligent grouping

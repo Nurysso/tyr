@@ -7,7 +7,7 @@
 
 use ratatui::crossterm::event::KeyCode;
 use ratatui::style::Color;
-use ratatui::{layout::Constraint, layout::Rect, text::Line, Frame};
+use ratatui::{Frame, layout::Constraint, layout::Rect, text::Line};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -15,7 +15,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::organizer::tui::{self, App, Flow, Job, Progress};
-use crate::organizer::utils::{is_hidden, LazyDirManager};
+use crate::organizer::utils::{LazyDirManager, is_hidden};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SimilarityConfig {
@@ -854,7 +854,6 @@ impl FilenameTuiApp {
         }
         f.render_widget(tui::paragraph(mid_lines, "skipped"), cols[2]);
     }
-
 
     /// Runs without any UI: analyze then organize immediately.
     pub fn auto_organize(&mut self) -> io::Result<()> {

@@ -2,676 +2,316 @@
 
 # Tyr
 
-**Intelligent file organization powered by machine learning**
+**A blazingly fast, local file organizer with extension categorization, filename similarity matching, and ML-powered content clustering.**
 
 [![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![License: GPL-3](https://img.shields.io/badge/License-GPL3-yellow.svg?style=for-the-badge)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey?style=for-the-badge)](https://github.com)
-[![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-orange?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL3-yellow.svg?style=for-the-badge)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey?style=for-the-badge)](https://github.com/Nurysso/tyr)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue.svg?style=for-the-badge)](Cargo.toml)
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [Configuration](#configuration) • [Documentation](#documentation)
+[Features](#features) · [Modes](#modes-of-operation) · [Installation](#installation) · [Usage](#usage) · [Configuration](#configuration) · [Documentation](#documentation)
 
 ---
 
-<img src="https://raw.githubusercontent.com/Nurysso/Hermes/main/kondo/kondo.gif" alt="Demo" width="100%" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);"/>
-<!-- ![Demo](assets/demo.gif) -->
+<img src="https://raw.githubusercontent.com/Nurysso/Hermes/main/kondo/kondo.gif" alt="Tyr Demo" width="100%" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);"/>
 
 </div>
 
-## Overview
+## What is Tyr?
 
-<table>
-<tr>
-<td width="50%">
+**Tyr** is a modern, high-performance command-line and terminal UI file organizer built in Rust. It eliminates folder clutter instantly by intelligently organizing files using one of three dedicated engines:
 
-Tyr is a **blazingly fast** file organizer built in Rust that automatically categorizes and groups your files. Unlike traditional organizers that only look at file extensions, Tyr uses **machine learning algorithms** to understand relationships between files and intelligently organize them.
+1. **Category (Extension) Mode (`-c`)** — Organizes files into sensible folders (`Images/`, `Documents/`, `Code/`, `Videos/`, etc.) based on customizable extension mappings.
+2. **Filename Similarity Mode (`-f`)** — Uses a hybrid of **Levenshtein edit-distance** and **Jaccard token overlap** to group related files (e.g., `contract_v1.pdf`, `contract_v2.docx`, `contract_final.pdf`, `contract_scan.jpg`) together, regardless of their extensions.
+3. **Intelligent ML Mode (`-i`)** — Extracts TF-IDF content vectors from text files combined with character n-gram filename features, running **K-Means++ clustering** to group files by actual semantic topic and context.
 
-</td>
-<td width="50%">
-
-```rust
-// Organize in seconds
-tyr ~/Downloads
-
-// Features
-✓ ML-powered grouping
-✓ Parallel processing
-✓ Beautiful TUI
-✓ Safe operations
-```
-
-</td>
-</tr>
-</table>
+Everything runs **100% locally and offline**. No telemetry, no cloud dependencies.
 
 ---
 
 ## Features
 
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### Intelligent Organization
-```
-┌─────────────────────────────────┐
-│  Extension-based categorization │
-│  10+ default categories         │
-│  Unlimited custom categories    │
-└─────────────────────────────────┘
-        ↓
-┌─────────────────────────────────┐
-│  ML-powered smart grouping      │
-│  Levenshtein + Jaccard          │
-│  Automatic version detection    │
-└─────────────────────────────────┘
-```
-
-**Capabilities:**
-- Groups file versions (`file_v1`, `file_v2`)
-- Detects related files (`project_code`, `project_docs`)
-- Customizable similarity thresholds
-
-</td>
-<td width="50%" valign="top">
-
-### High Performance
-```
-┌──────────────────────────────────┐
-│  Performance Metrics             │
-├──────────────────────────────────┤
-│  1000 files     →  2.1 seconds   │
-│  Parallel       →  3-5x speedup  │
-│  Memory usage   →  ~8-12 MB      │
-│  Syscalls       →  reduced alot  │
-└──────────────────────────────────┘
-```
-
-**Speed:**
-- 600x faster than manual sorting
-- Optimized with Rayon parallelism
-- Lazy directory creation
-- Memory-efficient batch operations
-
-</td>
-</tr>
-</table>
+- ⚡ **Blazingly Fast Parallelism** — Powered by [Rayon](https://github.com/rayon-rs/rayon) for multi-threaded scanning, feature extraction, and clustering across all CPU cores.
+- 🎨 **Beautiful Terminal UI** — Rich interactive TUI built with [Ratatui](https://github.com/ratatui/ratatui) and [Crossterm](https://github.com/crossterm-rs/crossterm), featuring live progress bars, category breakdown bar charts, and scrollable previews.
+- 🤖 **Multiple Organization Engines** — Choose between deterministic extension grouping, fuzzy filename similarity, or content-aware TF-IDF K-Means clustering.
+- 🛡️ **Safe by Default** — Built-in conflict resolution (auto-renames duplicates `_1`, `_2`, ... up to 999 variations without data loss) and non-destructive dry-run previews.
+- 🚀 **Lazy Directory Management** — Creates destination directories on demand with in-memory caching to minimize filesystem syscalls.
+- 🤖 **Headless / Automation Ready (`-nui`)** — Run headlessly in scripts, CI pipelines, or cron jobs without launching the TUI.
+- ⚙️ **Fully Configurable** — Unified TOML configuration located at `~/.config/tyr/tyr.toml` (or `%APPDATA%\tyr\tyr.toml` on Windows).
 
 ---
 
-<div align="center">
+## Modes of Operation
+
+| Mode                    | Flag                | Description                                                     | Best For                                                       |
+| :---------------------- | :------------------ | :-------------------------------------------------------------- | :------------------------------------------------------------- |
+| **Categorize**          | `-c, --categorize`  | Sorts files into predefined folders based on extension mappings | Downloads folders, desktop cleanups, general sorting           |
+| **Filename Similarity** | `-f, --filename`    | Groups files using Levenshtein distance + Jaccard tokenization  | Versioned documents, photo shoot batches, sequential files     |
+| **Intelligent ML**      | `-i, --intelligent` | Clusters files via TF-IDF content analysis + K-Means++          | Code repositories, research papers, markdown notes, text dumps |
+| **Headless**            | `-nui, --no-ui`     | Runs any mode without launching the interactive TUI             | Automation, scripts, background jobs                           |
+
+---
 
 ## Installation
 
-</div>
+### Requirements
 
-<table>
-<tr>
-<td width="33%" align="center">
+- **Rust** 1.70 or newer (Rust 2024 edition compatible, recommended 1.80+)
+- **Cargo** package manager
 
-### Linux/Mac
+### From Source
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aelune/tyr/main/install.sh | bash
-```
-
-</td>
-<td width="33%" align="center">
-
-### Windows
-```bash
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aelune/tyr/main/install.ps1" -OutFile "install.ps1"
-.\install.ps1
-```
-
-</td>
-<td width="33%" align="center">
-
-### Manual
-```bash
-git clone https://github.com/Aelune/tyr.git
+# Clone the repository
+git clone https://github.com/Nurysso/tyr.git
 cd tyr
+
+# Build and install using the Makefile
 make install
 ```
 
-</td>
-</tr>
-</table>
+Or build manually with Cargo:
 
-<div align="center">
+```bash
+cargo install --path .
+```
 
-**Requirements:** Rust 1.70+
+### Linux / macOS One-Liner
 
-</div>
+```bash
+curl -fsSL https://raw.githubusercontent.com/Nurysso/tyr/main/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Nurysso/tyr/main/install.ps1" -OutFile "install.ps1"
+.\install.ps1
+```
 
 ---
 
 ## Usage
 
-### Quick Start
-
-<table>
-<tr>
-<td width="50%">
+### Command Syntax
 
 ```bash
-# Organize current directory
-tyr
-
-# Organize specific directory
-tyr ~/Downloads
-
-# Organize any path
-tyr /path/to/folder
+tyr [OPTIONS] [DIRECTORY]
 ```
 
-</td>
-<td width="50%">
+If `[DIRECTORY]` is omitted, Tyr targets the current working directory.
 
-**Terminal Controls**
+### Common Commands
 
-| Key | Action |
-|:---:|--------|
-| `s` | Start organizing |
-| `d` | Dry run (preview) |
-| `q` | Quit application |
+```bash
+# 1. Organize by category (extension mode)
+tyr -c ~/Downloads
 
-</td>
-</tr>
-</table>
+# 2. Group similar filenames together
+tyr -f ~/Documents/Projects
 
-### Visual Example
+# 3. Intelligent ML-based topic clustering (content + filename)
+tyr -i ~/Research/Notes
 
-<div align="center">
+# 4. Headless execution (no TUI)
+tyr -c -nui ~/Downloads
+tyr -f -nui ~/Pictures/Exports
+tyr -i -nui ~/Notes
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│                         BEFORE                                 │
-├────────────────────────────────────────────────────────────────┤
-│  Downloads/                                                    │
-│  ├── report_v1.pdf                                             │
-│  ├── report_v2.pdf                                             │
-│  ├── report_v3.pdf                                             │
-│  ├── vacation.jpg                                              │
-│  ├── song.mp3                                                  │
-│  └── data.xlsx                                                 │
-└────────────────────────────────────────────────────────────────┘
-                               ↓
-                    tyr ~/Downloads
-                               ↓
-┌────────────────────────────────────────────────────────────────┐
-│                    AFTER (Category Mode)                       │
-├────────────────────────────────────────────────────────────────┤
-│  Downloads/                                                    │
-│  ├── Documents/                                                │
-│  │   ├── report_v1.pdf                                         │
-│  │   ├── report_v2.pdf                                         │
-│  │   └── report_v3.pdf                                         │
-│  ├── Images/                                                   │
-│  │   └── vacation.jpg                                          │
-│  ├── Audio/                                                    │
-│  │   └── song.mp3                                              │
-│  └── Spreadsheets/                                             │
-│      └── data.xlsx                                             │
-└────────────────────────────────────────────────────────────────┘
-                               ↓
-              enable_smart_grouping = true
-                               ↓
-┌────────────────────────────────────────────────────────────────┐
-│                 AFTER (Smart Grouping Mode aka filename)       │
-├────────────────────────────────────────────────────────────────┤
-│  Downloads/                                                    │
-│  ├── Documents/                                                │
-│  │   └── report_group_001/    ← Grouped by ML                  │
-│  │       ├── report_v1.pdf                                     │
-│  │       ├── report_v2.pdf                                     │
-│  │       └── report_v3.pdf                                     │
-│  ├── Images/                                                   │
-│  │   └── vacation.jpg                                          │
-│  ├── Audio/                                                    │
-│  │   └── song.mp3                                              │
-│  └── Spreadsheets/                                             │
-│      └── data.xlsx                                             │
-└────────────────────────────────────────────────────────────────┘
+# 5. Show help or version
+tyr --help
+tyr --version
 ```
 
-</div>
+---
+
+## Interactive TUI Controls
+
+### Categorize Mode (`tyr -c`)
+
+| Key         | Action                                                     |
+| :---------- | :--------------------------------------------------------- |
+| `s`         | **Start** organizing files into category folders           |
+| `d`         | **Dry run** (preview planned moves without touching files) |
+| `q` / `Esc` | **Quit** the application                                   |
+
+### Filename Similarity Mode (`tyr -f`)
+
+| Key                   | Action                                                                    |
+| :-------------------- | :------------------------------------------------------------------------ |
+| `a`                   | **Analyze** directory and compute similarity groups                       |
+| `s`                   | **Organize** and move files into discovered groups                        |
+| `k`                   | **Toggle skip destination** (route unmatched single files to `tyr-skip/`) |
+| `↑` / `↓`             | **Scroll** through discovered groups and file lists                       |
+| `PageUp` / `PageDown` | **Fast scroll** by 10 items                                               |
+| `q` / `Esc`           | **Quit** the application                                                  |
+
+### Intelligent ML Mode (`tyr -i`)
+
+| Key         | Action                                                |
+| :---------- | :---------------------------------------------------- |
+| `s`         | **Start** feature extraction and K-Means++ clustering |
+| `m`         | **Move** files into suggested cluster directories     |
+| `d`         | **Dry run** preview of operations                     |
+| `q` / `Esc` | **Quit** the application                              |
+
+---
+
+## Example Walkthrough
+
+### 1. Extension Categorization (`tyr -c`)
+
+**Before:**
+
+```
+Downloads/
+├── invoice_2026.pdf
+├── project_mockup.png
+├── presentation.pptx
+├── main.rs
+├── track01.flac
+└── dataset.csv
+```
+
+**After `tyr -c ~/Downloads`:**
+
+```
+Downloads/
+├── Documents/
+│   └── invoice_2026.pdf
+├── Images/
+│   └── project_mockup.png
+├── Presentations/
+│   └── presentation.pptx
+├── Code/
+│   └── main.rs
+├── Music/
+│   └── track01.flac
+└── Spreadsheets/
+    └── dataset.csv
+```
+
+### 2. Filename Similarity (`tyr -f`)
+
+**Before:**
+
+```
+Downloads/
+├── report_v1.pdf
+├── report_v2.pdf
+├── report_final.docx
+├── report_signed_scan.jpg
+├── vacation_beach_01.jpg
+├── vacation_beach_02.jpg
+└── unrelated_note.txt
+```
+
+**After `tyr -f ~/Downloads`:**
+
+```
+Downloads/
+├── Report/
+│   ├── report_v1.pdf
+│   ├── report_v2.pdf
+│   ├── report_final.docx
+│   └── report_signed_scan.jpg
+├── VacationBeach/
+│   ├── vacation_beach_01.jpg
+│   └── vacation_beach_02.jpg
+└── unrelated_note.txt           # Remains in place or moved to tyr-skip/ (if [k] toggled)
+```
 
 ---
 
 ## Configuration
 
-<div align="center">
+Tyr automatically creates a configuration file on its first run at:
 
-**Configuration File:** `~/.config/tyr/tyr.toml`
+- **Linux/macOS:** `~/.config/tyr/tyr.toml`
+- **Windows:** `%APPDATA%\tyr\tyr.toml`
 
-</div>
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### Basic Settings
+### Default `tyr.toml`
 
 ```toml
-# Batch processing size
+# Tyr File Organizer Configuration
 batch_size = 100
+log_file = "~/.config/tyr/tyr.log"
 
-# Enable ML grouping
-enable_smart_grouping = false
+# Global skip options across all modes
+skip_patterns = [".DS_Store", "Thumbs.db", ".git", ".gitignore", "desktop.ini", ".localized"]
+skip_hidden_files = true
 
-# Skip these files
-skip_patterns = [
-    ".DS_Store",
-    "Thumbs.db",
-    ".git*"
-]
-```
-
-</td>
-<td width="50%" valign="top">
-
-### Custom Categories
-
-```toml
-[categories.my_category]
-extensions = [
-    "ext1",
-    "ext2",
-    "ext3"
-]
-folder_name = "My Custom Folder"
-```
-
-</td>
-</tr>
-<tr>
-<td colspan="2">
-
-### Similarity Tuning
-
-```toml
 [similarity_config]
-levenshtein_threshold = 0.7      # Character similarity (0.0 - 1.0)
-jaccard_threshold = 0.5          # Token overlap (0.0 - 1.0)
-levenshtein_weight = 0.6         # Weight for character matching
-jaccard_weight = 0.4             # Weight for token matching
-min_similarity_score = 0.65      # Overall threshold for grouping
+levenshtein_threshold = 0.7   # Character-level similarity threshold (0.0 - 1.0)
+jaccard_threshold = 0.5       # Token-overlap threshold (0.0 - 1.0)
+levenshtein_weight = 0.6      # Character edit-distance weight
+jaccard_weight = 0.4          # Token overlap weight
+min_similarity_score = 0.65   # Minimum composite score to form a group
+
+[intelligent_config]
+max_lines_to_read = 100          # First N lines of text files sampled for TF-IDF
+min_cluster_size = 2             # Minimum items to form a cluster
+max_clusters = 20                # Upper bound on K-Means clusters
+filename_similarity_weight = 0.3 # Weight for filename n-gram features
+content_similarity_weight = 0.7  # Weight for TF-IDF content vectors
+similarity_threshold = 0.65      # Clustering threshold
+max_iterations = 100             # Max iterations for K-Means convergence
+
+# Category definitions (customize folders & extensions)
+[categories.images]
+extensions = ["jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "tiff", "ico", "heic", "raw", "cr2", "nef", "orf", "sr2"]
+folder_name = "Images"
 ```
 
-</td>
-</tr>
-</table>
-
-<!-- ### Configuration Commands
-
-<div align="center">
+### Makefile Convenience Commands
 
 ```bash
-make config-edit     │  make config-path     │  make config-backup     │  make config-reset
+make config-edit     # Open tyr.toml in $EDITOR
+make config-path     # Display full configuration file path
+make config-view     # Display configuration contents in terminal
+make config-backup   # Create a timestamped backup of your config
+make config-reset    # Reset config file to factory defaults
 ```
-
-</div>
-
---- -->
-<!--
-## Performance
-
-<div align="center">
-
-### Benchmarks (1000 files)
-
-<table>
-<tr>
-<th>Mode</th>
-<th>Time</th>
-<th>Memory</th>
-<th>Speedup</th>
-</tr>
-<tr>
-<td align="center">Standard</td>
-<td align="center"><code>2.1s</code></td>
-<td align="center"><code>~8MB</code></td>
-<td align="center"><strong>600x</strong></td>
-</tr>
-<tr>
-<td align="center">Smart Grouping</td>
-<td align="center"><code>2.8s</code></td>
-<td align="center"><code>~12MB</code></td>
-<td align="center"><strong>450x</strong></td>
-</tr>
-<tr>
-<td align="center">Manual</td>
-<td align="center"><code>~30min</code></td>
-<td align="center"><code>-</code></td>
-<td align="center"><code>1x</code></td>
-</tr>
-</table>
-
-### Performance Highlights
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Parallel Processing     →  3-5x speedup on multi-core       │
-│  Lazy Operations         →  99% reduction in syscalls        │
-│  Algorithm Efficiency    →  ~1ms per file comparison         │
-│  Memory Footprint        →  Minimal (~8-12MB)                │
-└──────────────────────────────────────────────────────────────┘
-```
-
-</div>
-
---- -->
-
-## Use Cases
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### Photography
-```
-┌───────────────────────────────┐
-│  RAW + JPG pairs grouping     │
-│  Shoot session organization   │
-│  Sequential numbering         │
-│  Multi-format support         │
-└───────────────────────────────┘
-```
-
-### Software Development
-```
-┌───────────────────────────────┐
-│  Source file organization     │
-│  Language-agnostic sorting    │
-│  Config file detection        │
-│  Project-based grouping       │
-└───────────────────────────────┘
-```
-
-</td>
-<td width="50%" valign="top">
-
-### Document Management
-```
-┌───────────────────────────────┐
-│  Version tracking             │
-│  Project-based grouping       │
-│  Multi-format support         │
-│  Archive organization         │
-└───────────────────────────────┘
-```
-
-### Downloads Cleanup
-```
-┌───────────────────────────────┐
-│  Automatic categorization     │
-│  Weekly organization runs     │
-│  Clutter-free workspace       │
-│  Smart conflict resolution    │
-└───────────────────────────────┘
-```
-
-</td>
-</tr>
-</table>
 
 ---
 
-## Make Commands
+## Documentation
 
-<div align="center">
+For in-depth guides, algorithms, and visual examples, check the `docs/` directory:
 
-<table>
-<tr>
-<td align="center" width="25%">
-
-**Build & Install**
-```bash
-make install
-make uninstall
-make clean
-```
-
-</td>
-<td align="center" width="25%">
-
-**Run & Test**
-```bash
-make run
-make test
-```
-
-</td>
-<td align="center" width="25%">
-
-**Configuration**
-```bash
-make config-edit
-make config-path
-```
-
-</td>
-<td align="center" width="25%">
-
-**Backup & Reset**
-```bash
-make config-backup
-make config-reset
-```
-
-</td>
-</tr>
-</table>
-
-</div>
-
----
-
-<!-- ## Documentation
-
-<div align="center">
-
-<table>
-<tr>
-<td align="center" width="25%">
-
-**[COMPLETE_SETUP.md](COMPLETE_SETUP.md)**
-
-Installation & Setup
-
-</td>
-<td align="center" width="25%">
-
-**[QUICK_REFERENCE.md](QUICK_REFERENCE.md)**
-
-Command Reference
-
-</td>
-<td align="center" width="25%">
-
-**[ML_FEATURES.md](ML_FEATURES.md)**
-
-Smart Grouping
-
-</td>
-<td align="center" width="25%">
-
-**[SMART_GROUPING_EXAMPLES.md](SMART_GROUPING_EXAMPLES.md)**
-
-Usage Examples
-
-</td>
-</tr>
-</table>
-
-</div>
-
---- -->
-
-## Built With
-
-<div align="center">
-
-<table>
-<tr>
-<td align="center" width="20%">
-
-![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
-
-**Rust**
-
-Systems Language
-
-</td>
-<td align="center" width="20%">
-
-![Ratatui](https://img.shields.io/badge/Ratatui-000000?style=for-the-badge)
-
-**Ratatui**
-
-Terminal UI
-
-</td>
-<td align="center" width="20%">
-
-![Crossterm](https://img.shields.io/badge/Crossterm-4A5568?style=for-the-badge)
-
-**Crossterm**
-
-Terminal Control
-
-</td>
-<td align="center" width="20%">
-
-![Rayon](https://img.shields.io/badge/Rayon-EE4C2C?style=for-the-badge)
-
-**Rayon**
-
-Parallelism
-
-</td>
-<td align="center" width="20%">
-
-![Serde](https://img.shields.io/badge/Serde-000000?style=for-the-badge)
-
-**Serde**
-
-Serialization
-
-</td>
-</tr>
-</table>
-
-</div>
+- [**docs/features.md**](docs/features.md) — Comprehensive technical breakdown of all features, architecture, and benchmarks.
+- [**docs/filename-engine.md**](docs/filename-engine.md) — Mathematical explanation of the ML algorithms (Levenshtein, Jaccard, TF-IDF, K-Means++).
+- [**docs/smart_grouping.md**](docs/smart_grouping.md) — Visual scenarios, threshold guides, and pattern detection examples.
 
 ---
 
 ## Roadmap
 
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### Planned Features
-
-- [ ] Content-based similarity (file hashing)
-- [ ] Date-based organization
-- [ ] Duplicate file detection
-- [ ] Undo functionality
-- [ ] Watch mode (auto-organize on changes)
-
-</td>
-<td width="50%" valign="top">
-
-### What it dosen't do
-
-- [ ] Cloud storage integration
-- [ ] Image content analysis
-- [ ] Audio fingerprinting
-
-</td>
-</tr>
-</table>
+- [ ] **Content Hashing & Duplicate Deduplication** — Fast Blake3/SHA-256 hash checks to detect exact duplicate files.
+- [ ] **Date-based Partitioning** — Automatic organization by EXIF photo creation dates or filesystem timestamps (`YYYY/MM/`).
+- [ ] **Undo / Rollback History** — Transactional journal allowing one-key rollback of previous organization runs.
+- [ ] **Daemon / Watch Mode** — Background daemon listening to filesystem events (inotify/fsevents) to organize downloads automatically.
 
 ---
 
 ## Contributing
 
-<div align="center">
+Contributions are welcome! If you want to add a feature, report a bug, or improve documentation:
 
-Contributions are welcome! We especially appreciate help with:
-
-```
-┌──────────────────────┬──────────────────────┬──────────────────────┐
-│  New Algorithms      │  Performance Tuning  │  File Type Support   │
-├──────────────────────┼──────────────────────┼──────────────────────┤
-│  Documentation       │  Bug Fixes           │  Testing             │
-└──────────────────────┴──────────────────────┴──────────────────────┘
-```
-
-</div>
-
----
-
-## Comparison
-
-<div align="center">
-
-<table>
-<tr>
-<th>Feature</th>
-<th>Tyr</th>
-<th>Traditional Organizers</th>
-</tr>
-<tr>
-<td>ML-based grouping</td>
-<td align="center">✅</td>
-<td align="center">❌</td>
-</tr>
-<tr>
-<td>Parallel processing</td>
-<td align="center">✅</td>
-<td align="center">❌</td>
-</tr>
-<tr>
-<td>Interactive TUI</td>
-<td align="center">✅</td>
-<td align="center">⚠️ Some</td>
-</tr>
-<tr>
-<td>External configuration</td>
-<td align="center">✅</td>
-<td align="center">⚠️ Some</td>
-</tr>
-<tr>
-<td>Dry run mode</td>
-<td align="center">✅</td>
-<td align="center">⚠️ Some</td>
-</tr>
-<tr>
-<td>Cross-platform</td>
-<td align="center">✅</td>
-<td align="center">⚠️ Varies</td>
-</tr>
-</table>
-
-</div>
+1. Fork the repository.
+2. Create your feature branch (`git checkout -b feature/amazing-feature`).
+3. Ensure formatting and clippy lints pass:
+   ```bash
+   make fmt
+   make lint
+   make test
+   ```
+4. Commit your changes and open a Pull Request.
 
 ---
 
 ## License
 
-<div align="center">
+This project is licensed under the **GNU General Public License v3.0 or later** ([GPL-3.0-or-later](LICENSE)).
 
-This project is licensed under the **GPL-3 License** - see the [LICENSE](LICENSE) file for details.
-
----
-
-**Made with Rust**
-
-[![Star on GitHub](https://img.shields.io/github/stars/Aelune/tyr?style=social)](https://github.com/Aelune/tyr)
-[![Fork on GitHub](https://img.shields.io/github/forks/Aelune/tyr?style=social)](https://github.com/Aelune/tyr/fork)
-
-[⬆ back to top](#tyr)
-
-</div>
+Copyright (C) 2026 Dawood Khan (Nurysso) <nurysso@proton.me>.

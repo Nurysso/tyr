@@ -9,9 +9,10 @@
 */
 
 use crate::organizer::tui::{self, App, Flow, Job, Progress};
+use crate::organizer::utils::{LazyDirManager, LogLevel, SafeLogger, is_hidden};
 use ratatui::crossterm::event::KeyCode;
 use ratatui::style::Color;
-use ratatui::{layout::Constraint, layout::Rect, Frame};
+use ratatui::{Frame, layout::Constraint, layout::Rect};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -19,7 +20,6 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use crate::organizer::utils::{is_hidden, LazyDirManager, LogLevel, SafeLogger};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FileOrganizerConfig {

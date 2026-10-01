@@ -24,6 +24,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process;
+use clap::{Parser, Subcommand};
 
 mod organizer;
 use organizer::categorise::{FileOrganizerConfig, TuiApp};
@@ -32,6 +33,56 @@ use organizer::intelligent::{IntelligentConfig, IntelligentTuiApp};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const BIN_NAME: &str = env!("CARGO_PKG_NAME");
+
+
+#[derive(Parser, Debug)]
+#[command(
+    name = env!("CARGO_PKG_NAME"),
+    version = env!("CARGO_PKG_VERSION"),
+    about = "ML-Powered • Blazingly Fast • Beautiful TUI file organizer",
+    long_about = None,
+    disable_help_flag = true,   // we keep our ASCII-art help
+)]
+
+struct Args {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Show help (ASCII art edition)
+    #[arg(short = 'h', long = "help", global = true)]
+    help: bool,
+
+    /// Show version
+    #[arg(short = 'v', long = "version", global = true)]
+    version: bool,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Organize files by category (images, videos, documents, etc.)
+    #[command(name = "-c", alias = "--categorize")]
+    Categorize {
+        /// Target directory (defaults to current dir)
+        directory: Option<PathBuf>,
+        /// Skip the TUI and organize automatically
+        #[arg(long = "no-ui", short = 'n', alias = "nui")]
+        no_ui: bool,
+    },
+    /// Group similar files based on filename patterns
+    #[command(name = "-f", alias = "--filename")]
+    Filename {
+        directory: Option<PathBuf>,
+        #[arg(long = "no-ui", short = 'n', alias = "nui")]
+        no_ui: bool,
+    },
+    /// Use ML-based clustering with TF-IDF content analysis
+    #[command(name = "-i", alias = "--intelligent")]
+    Intelligent {
+        directory: Option<PathBuf>,
+        #[arg(long = "no-ui", short = 'n', alias = "nui")]
+        no_ui: bool,
+    },
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TyrConfig {
@@ -51,8 +102,6 @@ impl Default for TyrConfig {
     fn default() -> Self {
         Self {
             log_file: None,
-            // enable_smart_grouping: false,
-            // enable_intelligent_grouping: false,
             skip_patterns: default_skip_patterns(),
             skip_hidden_files: true,
             similarity_config: SimilarityConfigToml::default(),
@@ -342,7 +391,7 @@ fn print_help() {
 fn print_version() {
     println!("{} v{}", BIN_NAME, VERSION);
     println!(
-    "{}  Copyright (C) 2026  Nurysso\n\
+        "{}  Copyright (C) 2026  Nurysso\n\
     This program is free software: you can redistribute it and/or modify\n\
     it under the terms of the GNU General Public License as published by\n\
     the Free Software Foundation, either version 3 of the License, or\n\
@@ -353,22 +402,22 @@ fn print_version() {
     GNU General Public License for details.\n\n\
     You should have received a copy of the GNU General Public License\n\
     along with this program.  If not, see <https://www.gnu.org/licenses/>.",
-    BIN_NAME
-);
+        BIN_NAME
+    );
 }
 
 /// The first positional argument that isn't `-nui`/`--no-ui`, or the
 /// current directory if none was given.
-fn resolve_target_dir(args: &[String]) -> std::io::Result<PathBuf> {
-    let path_arg = args
-        .iter()
-        .skip(2)
-        .find(|a| a.as_str() != "-nui" && a.as_str() != "--no-ui");
-    match path_arg {
-        Some(path) => Ok(PathBuf::from(path)),
-        None => env::current_dir(),
-    }
-}
+// fn resolve_target_dir(args: &[String]) -> std::io::Result<PathBuf> {
+//     let path_arg = args
+//         .iter()
+//         .skip(2)
+//         .find(|a| a.as_str() != "-nui" && a.as_str() != "--no-ui");
+//     match path_arg {
+//         Some(path) => Ok(PathBuf::from(path)),
+//         None => env::current_dir(),
+//     }
+// }
 
 fn exit_with_error(tyr_config: &TyrConfig, message: String) -> ! {
     eprintln!("\u{2717} Error: {message}");
@@ -376,18 +425,18 @@ fn exit_with_error(tyr_config: &TyrConfig, message: String) -> ! {
     process::exit(1);
 }
 
-fn require_dir(args: &[String], tyr_config: &TyrConfig) -> PathBuf {
-    let target_dir = resolve_target_dir(args).unwrap_or_else(|e| {
-        exit_with_error(tyr_config, format!("Could not get current directory: {e}"))
-    });
-    if !target_dir.exists() {
-        exit_with_error(
-            tyr_config,
-            format!("Directory does not exist: {}", target_dir.display()),
-        );
-    }
-    target_dir
-}
+// fn require_dir(args: &[String], tyr_config: &TyrConfig) -> PathBuf {
+//     let target_dir = resolve_target_dir(args).unwrap_or_else(|e| {
+//         exit_with_error(tyr_config, format!("Could not get current directory: {e}"))
+//     });
+//     if !target_dir.exists() {
+//         exit_with_error(
+//             tyr_config,
+//             format!("Directory does not exist: {}", target_dir.display()),
+//         );
+//     }
+//     target_dir
+// }
 
 fn run_categorize_mode(
     target_dir: PathBuf,
@@ -500,55 +549,91 @@ fn log_result(log_file: &Option<String>, result: &std::io::Result<()>, label: &s
     }
 }
 
-fn dispatch(
-    mode: &str,
-    args: &[String],
-    tyr_config: &TyrConfig,
-    no_ui: bool,
-) -> std::io::Result<()> {
-    match mode {
-        "-h" | "--help" => {
-            print_help();
-            process::exit(0);
-        }
-        "-c" | "--categorize" => {
-            run_categorize_mode(require_dir(args, tyr_config), tyr_config, no_ui)
-        }
-        "-f" | "--filename" => run_filename_mode(require_dir(args, tyr_config), tyr_config, no_ui),
-        "-i" | "--intelligent" => {
-            run_intelligent_mode(require_dir(args, tyr_config), tyr_config, no_ui)
-        }
-        "-nui" | "--no-ui" => {
-            eprintln!("\u{2717} Error: -nui flag must be used with -c, -f, or -i mode");
-            eprintln!("\nExamples:\n  tyr -c -nui /path/to/folder\n  tyr -f -nui /path/to/folder\n  tyr -i -nui /path/to/folder");
-            process::exit(1);
-        }
-        "-v" | "--version" => {
-            print_version();
-            Ok(())
-        }
-        other => exit_with_error(
-            tyr_config,
-            format!("Unknown option '{other}'\n\nRun 'tyr --help' for usage information"),
-        ),
-    }
-}
+// fn dispatch(
+//     mode: &str,
+//     args: &[String],
+//     tyr_config: &TyrConfig,
+//     no_ui: bool,
+// ) -> std::io::Result<()> {
+//     match mode {
+//         "-h" | "--help" => {
+//             print_help();
+//             process::exit(0);
+//         }
+//         "-c" | "--categorize" => {
+//             run_categorize_mode(require_dir(args, tyr_config), tyr_config, no_ui)
+//         }
+//         "-f" | "--filename" => run_filename_mode(require_dir(args, tyr_config), tyr_config, no_ui),
+//         "-i" | "--intelligent" => {
+//             run_intelligent_mode(require_dir(args, tyr_config), tyr_config, no_ui)
+//         }
+//         "-nui" | "--no-ui" => {
+//             eprintln!("\u{2717} Error: -nui flag must be used with -c, -f, or -i mode");
+//             eprintln!(
+//                 "\nExamples:\n  tyr -c -nui /path/to/folder\n  tyr -f -nui /path/to/folder\n  tyr -i -nui /path/to/folder"
+//             );
+//             process::exit(1);
+//         }
+//         "-v" | "--version" => {
+//             print_version();
+//             Ok(())
+//         }
+//         other => exit_with_error(
+//             tyr_config,
+//             format!("Unknown option '{other}'\n\nRun 'tyr --help' for usage information"),
+//         ),
+//     }
+// }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
     let tyr_config = load_tyr_config();
+    let cli = Args::parse();
 
-    if args.len() < 2 {
+    if cli.help {
         print_help();
         process::exit(0);
     }
 
-    let no_ui = args.iter().any(|a| a == "-nui" || a == "--no-ui");
-    if let Err(e) = dispatch(&args[1], &args, &tyr_config, no_ui) {
+    if cli.version {
+        print_version();
+        process::exit(0);
+    }
+
+    let Some(command) = cli.command else {
+        print_help();
+        process::exit(0);
+    };
+
+    let result = match command {
+        Commands::Categorize { directory, no_ui } => {
+            let dir = resolve_and_require(directory, &tyr_config);
+            run_categorize_mode(dir, &tyr_config, no_ui)
+        }
+        Commands::Filename { directory, no_ui } => {
+            let dir = resolve_and_require(directory, &tyr_config);
+            run_filename_mode(dir, &tyr_config, no_ui)
+        }
+        Commands::Intelligent { directory, no_ui } => {
+            let dir = resolve_and_require(directory, &tyr_config);
+            run_intelligent_mode(dir, &tyr_config, no_ui)
+        }
+    };
+
+    if let Err(e) = result {
         exit_with_error(&tyr_config, e.to_string());
     }
 
     log_to_file(&tyr_config.log_file, "=== Tyr session ended ===\n");
+}
+
+fn resolve_and_require(dir: Option<PathBuf>, tyr_config: &TyrConfig) -> PathBuf {
+    let path = dir.unwrap_or_else(|| env::current_dir().unwrap_or_else(|e| {
+        exit_with_error(tyr_config, format!("Could not get current directory: {e}"))
+    }));
+    if !path.exists() {
+        exit_with_error(tyr_config, format!("Directory does not exist: {}", path.display()));
+    }
+    path
 }
 
 fn default_config_toml(log_path: &str) -> String {

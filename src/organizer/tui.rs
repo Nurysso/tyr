@@ -13,9 +13,10 @@
 use ratatui::crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -24,11 +25,10 @@ use ratatui::{
         Block, BorderType, Borders, Clear as RatatuiClear, Gauge, LineGauge, List, ListItem,
         Paragraph, Wrap,
     },
-    Frame, Terminal,
 };
 
 use std::io::{self, Stdout};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc;
 use std::time::Duration;
 pub type Term = Terminal<CrosstermBackend<Stdout>>;
@@ -176,7 +176,6 @@ pub fn three_col(area: Rect, left_pct: u16, right_split_pct: u16) -> [Rect; 3] {
 
     [cols[0], right_rows[0], right_rows[1]]
 }
-
 
 pub fn panel(title: &str) -> Block<'static> {
     Block::default()
@@ -341,7 +340,6 @@ pub fn spinner(tick: usize) -> &'static str {
     FRAMES[tick % FRAMES.len()]
 }
 
-
 pub fn busy_gauge(f: &mut Frame, area: Rect, title: &str, label: &str, color: Color, tick: usize) {
     let block = panel(title);
     let inner = block.inner(area);
@@ -408,7 +406,6 @@ pub fn progress_gauge(
         .label(label.to_string());
     f.render_widget(gauge, area);
 }
-
 
 pub fn bar_chart(f: &mut Frame, area: Rect, title: &str, entries: &[(String, usize, Color)]) {
     let block = panel(title);
@@ -553,7 +550,6 @@ pub fn stat_row(pairs: &[(&str, &str, Color)]) -> Line<'static> {
     }
     Line::from(spans)
 }
-
 
 pub fn screen_frame(
     f: &mut Frame,
