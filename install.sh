@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # Configuration
-REPO="aelune/tyr"
+REPO="nurysso/tyr"
 BINARY_NAME="tyr"
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_PATH="${INSTALL_DIR}/${BINARY_NAME}"
