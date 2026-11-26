@@ -301,9 +301,10 @@ impl FileOrganizer {
                 }
             }
 
+            let prefix = if dry_run { "[DRY RUN] " } else { "" };
             self.logger.log(
                 LogLevel::Success,
-                format!("{} \u{2192} {}", filename, folder_name),
+                format!("{prefix}{} \u{2192} {}", filename, folder_name),
                 None,
             );
 
@@ -370,34 +371,25 @@ impl FileOrganizer {
 
 enum AppState {
     Ready,
-    Organizing(Job<OrganizeResult>),
-    Complete(OrganizeResult),
+    Organizing(Job<io::Result<OrganizeResult>>, bool),
+    Complete(OrganizeResult, bool),
+    Failed(String),
 }
 
 pub struct TuiApp {
-    organizer: FileOrganizer,
+    organizer: Arc<FileOrganizer>,
     base_path: PathBuf,
     state: AppState,
     tick: usize,
-    live_moved: usize,
-    live_skipped: usize,
-    live_failed: usize,
-    total_files: usize,
-    state_changed: bool,
 }
 
 impl TuiApp {
     pub fn new(config: FileOrganizerConfig, base_path: PathBuf) -> Self {
         Self {
-            organizer: FileOrganizer::new(config),
+            organizer: Arc::new(FileOrganizer::new(config)),
             base_path,
             state: AppState::Ready,
             tick: 0,
-            live_moved: 0,
-            live_skipped: 0,
-            live_failed: 0,
-            total_files: 0,
-            state_changed: true,
         }
     }
 
@@ -424,156 +416,37 @@ impl TuiApp {
     }
 
     fn start_organization(&mut self, dry_run: bool) {
-        // Count files upfront so the progress bar has a denominator
-        self.total_files = std::fs::read_dir(&self.base_path)
-            .map(|rd| {
-                rd.filter_map(|e| e.ok())
-                    .filter(|e| e.path().is_file())
-                    .count()
-            })
-            .unwrap_or(0);
-        self.live_moved = 0;
-        self.live_skipped = 0;
-        self.live_failed = 0;
-
+        let organizer = Arc::clone(&self.organizer);
         let base_path = self.base_path.clone();
-        let ext_map = self.organizer.config.build_extension_map();
-        let skip_patterns = self.organizer.config.skip_patterns.clone();
-        let skip_hidden = self.organizer.config.skip_hidden_files;
-
-        self.state = AppState::Organizing(Job::spawn(move |tx| {
+        let job = Job::spawn(move |tx| {
             let _ = tx.send(Progress::Update("Sorting files by extension...".into()));
-            let category_counts = Arc::new(Mutex::new(HashMap::new()));
-            let files_organized = Arc::new(Mutex::new(0usize));
-            let files_skipped = Arc::new(Mutex::new(0usize));
-            let files_failed = Arc::new(Mutex::new(0usize));
-            let dir_manager = LazyDirManager::new();
-
-            let entries: Vec<_> = fs::read_dir(&base_path)
-                .into_iter()
-                .flatten()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().is_file())
-                .collect();
-
-            entries.par_iter().for_each(|entry| {
-                let file_path = entry.path();
-                let filename = match file_path.file_name().and_then(|n| n.to_str()) {
-                    Some(n) => n,
-                    None => {
-                        *files_skipped.lock().unwrap() += 1;
-                        return;
-                    }
-                };
-                if skip_patterns.iter().any(|p| filename.contains(p)) {
-                    *files_skipped.lock().unwrap() += 1;
-                    return;
-                }
-                if skip_hidden && is_hidden(&file_path) {
-                    *files_skipped.lock().unwrap() += 1;
-                    return;
-                }
-                let extension = file_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| e.to_lowercase())
-                    .unwrap_or_else(|| "unknown".to_string());
-                let (_cat, folder_name) = ext_map
-                    .get(&extension)
-                    .cloned()
-                    .unwrap_or_else(|| ("extras".to_string(), "Extras".to_string()));
-                let target_dir = base_path.join(&folder_name);
-                let target_path = target_dir.join(filename);
-                let final_target = {
-                    if !target_path.exists() {
-                        target_path.clone()
-                    } else {
-                        let parent = target_path.parent().unwrap();
-                        let stem = target_path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("file");
-                        let ext = target_path
-                            .extension()
-                            .and_then(|e| e.to_str())
-                            .map(|e| format!(".{e}"))
-                            .unwrap_or_default();
-                        match (1..1000usize)
-                            .map(|i| parent.join(format!("{stem}_{i}{ext}")))
-                            .find(|p| !p.exists())
-                        {
-                            Some(p) => p,
-                            None => {
-                                *files_failed.lock().unwrap() += 1;
-                                return;
-                            }
-                        }
-                    }
-                };
-                if !dry_run {
-                    if dir_manager.ensure_dir_exists(&target_dir).is_err() {
-                        *files_failed.lock().unwrap() += 1;
-                        return;
-                    }
-                    if fs::rename(&file_path, &final_target).is_err() {
-                        *files_failed.lock().unwrap() += 1;
-                        return;
-                    }
-                }
-                let moved_now = {
-                    let mut g = files_organized.lock().unwrap();
-                    *g += 1;
-                    *g
-                };
-                *category_counts
-                    .lock()
-                    .unwrap()
-                    .entry(folder_name.clone())
-                    .or_insert(0) += 1;
-                // Send a structured progress token so tick() can parse live counts
-                let _ = tx.send(Progress::Update(format!("moved:{moved_now}:{folder_name}")));
-            });
-
-            let x = OrganizeResult {
-                files_organized: *files_organized.lock().unwrap(),
-                files_skipped: *files_skipped.lock().unwrap(),
-                files_failed: *files_failed.lock().unwrap(),
-                category_counts: category_counts.lock().unwrap().clone(),
-            };
-            x
-        }));
+            organizer.organize_directory(&base_path, dry_run)
+        });
+        self.state = AppState::Organizing(job, dry_run);
     }
 
     fn draw_ready(&self, f: &mut Frame, cols: [Rect; 3]) {
-        // Left: path + category list
         let cat_count = self.organizer.config.categories.len();
         let mut folder_names: Vec<String> = self
             .organizer
             .config
             .categories
-            .values()
-            .map(|c| {
-                c.folder_name
-                    .clone()
-                    .unwrap_or_else(|| "Unnamed".to_string())
-            })
+            .iter()
+            .map(|(k, c)| c.folder_name.clone().unwrap_or_else(|| k.clone()))
             .collect();
         folder_names.sort();
-        let folder_summary = folder_names.join(" ");
-        let lines = vec![
+        let mut left = vec![
             tui::blank(),
             tui::section_label("target"),
             tui::path_line(&self.base_path.display().to_string()),
             tui::blank(),
-            tui::section_label("categories configured"),
-            tui::stat("total", cat_count.to_string(), tui::INFO),
-            tui::blank(),
-            tui::header(&folder_summary, tui::MUTED),
+            tui::section_label("destination folders"),
         ];
-        f.render_widget(tui::paragraph(lines, "scan target"), cols[0]);
+        left.extend(folder_names.into_iter().map(tui::bullet));
+        left.push(tui::bullet("Extras (unmatched)"));
+        f.render_widget(tui::paragraph(left, "scan target"), cols[0]);
 
-        // Mid: how it works
-        let mut mid = vec![
+        let mid = vec![
             tui::blank(),
             tui::header("ready to organize", tui::OK),
             tui::blank(),
@@ -582,54 +455,65 @@ impl TuiApp {
             tui::bullet("creates destination dirs on demand"),
             tui::bullet("renames on collision (file_1, file_2 …)"),
             tui::blank(),
+            tui::header("[d] preview first, then [s] to apply", tui::MUTED),
         ];
-        for patterns in &self.organizer.config.skip_patterns {
-            mid.push(tui::bullet(patterns.clone()))
-        }
-        tui::header("press [s] to run  or  [d] for dry run", tui::MUTED);
         f.render_widget(tui::paragraph(mid, "overview"), cols[1]);
 
-        // Right: options snapshot
-        // let mut right = vec![
-        //     tui::blank(),
-        //     tui::section_label("mode"),
-        //     tui::stat("collision", "rename", tui::WARN),
-        //     tui::stat("hidden files", "skip", tui::MUTED),
-        //     tui::blank(),
-        //     tui::section_label("skip patterns"),
-        //     ];
-        // for patterns in &self.organizer.config.skip_patterns {
-        //     right.push(tui::bullet(patterns.clone()))
-        // }
-        // f.render_widget(tui::paragraph(right, "options"), cols[2]);
+        let mut right = vec![
+            tui::blank(),
+            tui::stat(
+                "hidden files",
+                if self.organizer.config.skip_hidden_files { "skip" } else { "include" },
+                tui::MUTED,
+            ),
+            tui::blank(),
+            tui::section_label("skip patterns"),
+        ];
+        right.extend(self.organizer.config.skip_patterns.iter().cloned().map(tui::bullet));
+        f.render_widget(tui::paragraph(right, "options"), cols[2]);
     }
 
-    fn draw_organizing(&self, f: &mut Frame, cols: [Rect; 3], msg: &str) {
-        // Tyr is fast af boi fast as f...
-        // drawing anything just makes it look awakward
-        tui::busy_gauge(f, cols[0], "progress", msg, tui::INFO, self.tick);
-    }
-
-    fn draw_complete(&self, f: &mut Frame, cols: [Rect; 3], result: &OrganizeResult) {
-        // Left: summary numbers
-        let left = vec![
+    fn draw_complete(&self, f: &mut Frame, cols: [Rect; 3], result: &OrganizeResult, dry_run: bool) {
+        let (title, moved_label) = if dry_run {
+            ("dry run — nothing moved yet", "would move")
+        } else {
+            ("✓ organization complete", "moved")
+        };
+        let mut left = vec![
             tui::blank(),
-            tui::header("✓ organization complete", tui::OK),
+            tui::header(title, if dry_run { tui::WARN } else { tui::OK }),
             tui::blank(),
-            tui::stat("moved", result.files_organized.to_string(), tui::OK),
+            tui::stat(moved_label, result.files_organized.to_string(), tui::OK),
             tui::stat("skipped", result.files_skipped.to_string(), tui::WARN),
             tui::stat("failed", result.files_failed.to_string(), tui::ERR),
         ];
+        if dry_run {
+            left.push(tui::blank());
+            left.push(tui::header("press [s] to apply these moves", tui::INFO));
+        }
         f.render_widget(tui::paragraph(left, "results"), cols[0]);
 
-        // category breakdown as bar chart
         let mut entries: Vec<(String, usize, Color)> = result
             .category_counts
             .iter()
             .map(|(k, v)| (k.clone(), *v, tui::INFO))
             .collect();
-        entries.sort_by(|a, b| b.1.cmp(&a.1));
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         tui::bar_chart(f, cols[1], "by category", &entries);
+
+        // newest entries first; the logger keeps both the dry run and the real run
+        let logs = self.organizer.get_logger().get_logs();
+        let rows = cols[2].height.saturating_sub(2) as usize;
+        let shown = logs.iter().rev().take(rows).map(|e| {
+            let lvl = match e.level {
+                LogLevel::Success => tui::Level::Ok,
+                LogLevel::Error => tui::Level::Err,
+                LogLevel::Warning => tui::Level::Warn,
+                LogLevel::Info => tui::Level::Info,
+            };
+            (lvl, e.message.as_str())
+        });
+        f.render_widget(tui::log_list("activity", shown), cols[2]);
     }
 
     /// Auto-organize files without UI interaction.
@@ -651,7 +535,7 @@ impl TuiApp {
             }
         }
 
-        self.state = AppState::Complete(result);
+        self.state = AppState::Complete(result, false);
         Ok(())
     }
 }
@@ -659,37 +543,21 @@ impl TuiApp {
 impl App for TuiApp {
     fn tick(&mut self) {
         self.tick = self.tick.wrapping_add(1);
-        if let AppState::Organizing(job) = &mut self.state {
-            // Drain all pending messages; parse structured ones for live counters
-            // (job.poll() only returns Some on Done, so we peek the channel ourselves
-            //  via the public .message field which the framework already updates)
-            if let Some(result) = job.poll() {
-                self.live_moved = result.files_organized;
-                self.live_skipped = result.files_skipped;
-                self.live_failed = result.files_failed;
-                self.state = AppState::Complete(result);
-                return;
-            }
-            // Parse the latest message for live moved count
-            let msg = job.message.clone();
-            if let Some(rest) = msg.strip_prefix("moved:") {
-                let mut parts = rest.splitn(2, ':');
-                if let Some(n) = parts.next().and_then(|s| s.parse::<usize>().ok()) {
-                    self.live_moved = n;
-                }
+        if let AppState::Organizing(job, dry_run) = &mut self.state {
+            let dry_run = *dry_run;
+            match job.poll() {
+                Some(Ok(result)) => self.state = AppState::Complete(result, dry_run),
+                Some(Err(e)) => self.state = AppState::Failed(e.to_string()),
+                None => {}
             }
         }
     }
 
-    fn needs_clear(&self) -> bool {
-        self.state_changed
-    }
-
     fn on_key(&mut self, key: KeyCode) -> Flow {
         match (&self.state, key) {
-            (AppState::Organizing(_), KeyCode::Char('q') | KeyCode::Esc) => Flow::Continue,
+            (AppState::Organizing(..), _) => Flow::Continue,
             (_, KeyCode::Char('q') | KeyCode::Esc) => Flow::Quit,
-            (AppState::Ready, KeyCode::Char('s')) => {
+            (AppState::Ready | AppState::Complete(_, true), KeyCode::Char('s')) => {
                 self.start_organization(false);
                 Flow::Continue
             }
@@ -711,16 +579,20 @@ impl App for TuiApp {
             ],
         );
 
-        let bindings: &[(&str, &str)] = match &self.state {
-            AppState::Ready => &[("s", "start"), ("d", "dry run"), ("q", "quit")],
-            AppState::Organizing(_) => &[("...", "organizing — please wait")],
-            AppState::Complete(_) => &[("q", "quit")],
-        };
-
-        let (status, status_color) = match &self.state {
-            AppState::Ready => ("ready", tui::OK),
-            AppState::Organizing(_) => ("running", tui::INFO),
-            AppState::Complete(_) => ("done", tui::OK),
+        let (status, status_color, bindings): (&str, Color, &[(&str, &str)]) = match &self.state {
+            AppState::Ready => (
+                "ready",
+                tui::OK,
+                &[("d", "dry run"), ("s", "organize"), ("q", "quit")],
+            ),
+            AppState::Organizing(..) => ("running", tui::INFO, &[("…", "organizing — please wait")]),
+            AppState::Complete(_, true) => (
+                "preview",
+                tui::WARN,
+                &[("s", "apply moves"), ("q", "quit")],
+            ),
+            AppState::Complete(_, false) => ("done", tui::OK, &[("q", "quit")]),
+            AppState::Failed(_) => ("error", tui::ERR, &[("q", "quit")]),
         };
 
         let cols = tui::screen_frame(
@@ -738,8 +610,14 @@ impl App for TuiApp {
 
         match &self.state {
             AppState::Ready => self.draw_ready(f, cols),
-            AppState::Organizing(job) => self.draw_organizing(f, cols, &job.message),
-            AppState::Complete(result) => self.draw_complete(f, cols, result),
+            AppState::Organizing(job, _) => {
+                tui::busy_gauge(f, cols[1], "progress", &job.message, tui::INFO, self.tick)
+            }
+            AppState::Complete(result, dry_run) => self.draw_complete(f, cols, result, *dry_run),
+            AppState::Failed(e) => f.render_widget(
+                tui::paragraph(vec![tui::blank(), tui::header(format!("✗ {e}"), tui::ERR)], "error"),
+                cols[1],
+            ),
         }
     }
 }
@@ -764,5 +642,24 @@ mod tests {
         assert!(ext_map.contains_key("jpg"));
         assert!(ext_map.contains_key("mp4"));
         assert!(ext_map.contains_key("pdf"));
+    }
+
+    #[test]
+    fn dry_run_moves_nothing_then_real_run_applies() {
+        let dir = std::env::temp_dir().join(format!("tyr-cat-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("a.jpg"), "").unwrap();
+        fs::write(dir.join("b.zzz"), "").unwrap();
+        let org = FileOrganizer::new(FileOrganizerConfig::default());
+
+        let dry = org.organize_directory(&dir, true).unwrap();
+        assert_eq!(dry.files_organized, 2);
+        assert!(dir.join("a.jpg").exists() && !dir.join("Images").exists());
+
+        let real = org.organize_directory(&dir, false).unwrap();
+        assert_eq!(real.files_organized, 2);
+        assert!(dir.join("Images/a.jpg").exists() && dir.join("Extras/b.zzz").exists());
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

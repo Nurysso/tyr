@@ -534,6 +534,17 @@ fn move_group(
     (moved, created_folders)
 }
 
+/// Top-level files that are neither hidden (when configured) nor skip-listed.
+fn list_files(base_path: &Path, config: &SimilarityConfig) -> io::Result<Vec<String>> {
+    Ok(fs::read_dir(base_path)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && !(config.skip_hidden_files && is_hidden(p)))
+        .filter_map(|p| p.file_name().and_then(|n| n.to_str()).map(String::from))
+        .filter(|n| !should_skip_file(n, &config.skip_patterns))
+        .collect())
+}
+
 pub fn organize_by_similarity(
     base_path: &Path,
     config: &SimilarityConfig,
@@ -545,22 +556,7 @@ pub fn organize_by_similarity(
         base_path.display()
     ));
 
-    let entries: Vec<_> = fs::read_dir(base_path)?
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            let p = e.path();
-            p.is_file() && !(config.skip_hidden_files && is_hidden(&p))
-        })
-        .collect();
-    let filenames: Vec<String> = entries
-        .iter()
-        .filter_map(|e| {
-            e.path()
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(String::from)
-        })
-        .collect();
+    let filenames = list_files(base_path, config)?;
     logger(&format!("Found {} files to process", filenames.len()));
 
     logger("Analyzing file similarities...");
@@ -654,26 +650,7 @@ impl FilenameTuiApp {
                 "Scanning and comparing filenames...".into(),
             ));
 
-            let entries: Vec<_> = fs::read_dir(&base_path)
-                .into_iter()
-                .flatten()
-                .filter_map(|e| e.ok())
-                .filter(|e| {
-                    let p = e.path();
-                    p.is_file() && !(config.skip_hidden_files && is_hidden(&p))
-                })
-                .collect();
-
-            let filenames: Vec<String> = entries
-                .iter()
-                .filter_map(|e| {
-                    e.path()
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map(String::from)
-                })
-                .collect();
-
+            let filenames = list_files(&base_path, &config).unwrap_or_default();
             group_similar_files(&filenames, &config)
         }));
     }
@@ -689,7 +666,10 @@ impl FilenameTuiApp {
                 let _ = tx.send(Progress::Update(msg.to_string()));
             };
             let result = organize_by_similarity(&base_path, &config, move_skipped, &mut logger)
-                .unwrap_or_default();
+                .unwrap_or_else(|e| OrganizeResult {
+                    errors: vec![e.to_string()],
+                    ..Default::default()
+                });
             (result, log)
         }));
     }
@@ -701,9 +681,9 @@ impl FilenameTuiApp {
             tui::path_line(&self.base_path.display().to_string()),
             tui::blank(),
             tui::section_label("algorithm"),
-            tui::stat("levenshtein weight", "60%", tui::INFO),
-            tui::stat("jaccard weight", "40%", tui::MUTED),
-            tui::stat("min similarity", "65%", tui::WARN),
+            tui::stat("levenshtein weight", pct(self.config.levenshtein_weight), tui::INFO),
+            tui::stat("jaccard weight", pct(self.config.jaccard_weight), tui::MUTED),
+            tui::stat("min similarity", pct(self.config.min_similarity_score), tui::WARN),
         ];
         f.render_widget(tui::paragraph(left, "scan target"), cols[0]);
 
@@ -715,7 +695,7 @@ impl FilenameTuiApp {
             tui::bullet("levenshtein: edit-distance on full name"),
             tui::bullet("jaccard: token overlap on word splits"),
             tui::blank(),
-            tui::header("press [a] to begin", tui::MUTED),
+            tui::header("[a] analyze — nothing moves until you confirm", tui::MUTED),
         ];
         f.render_widget(tui::paragraph(mid, "overview"), cols[1]);
 
@@ -767,18 +747,20 @@ impl FilenameTuiApp {
         ];
         f.render_widget(tui::paragraph(left, "summary"), cols[0]);
 
-        // Mid: scrollable group list
+        // Mid: scrollable group list; the top entry is the selected one
         let mut lines = vec![tui::section_label("groups preview")];
-        for (i, group) in multi.iter().skip(self.scroll_offset).take(12).enumerate() {
-            let folder = crate::organizer::filename::suggest_folder_name(group);
+        for (i, group) in multi.iter().enumerate().skip(self.scroll_offset).take(12) {
+            let selected = i == self.scroll_offset;
             lines.push(tui::header(
                 format!(
-                    "{:2}. {folder} ({} files, {:.0}%)",
-                    i + 1 + self.scroll_offset,
+                    "{}{:2}. {} ({} files, {:.0}%)",
+                    if selected { "▸ " } else { "  " },
+                    i + 1,
+                    suggest_folder_name(group),
                     group.files.len(),
                     group.avg_similarity * 100.0
                 ),
-                tui::INFO,
+                if selected { tui::OK } else { tui::INFO },
             ));
             for file in group.files.iter().take(2) {
                 lines.push(tui::bullet(file));
@@ -793,12 +775,13 @@ impl FilenameTuiApp {
         }
         f.render_widget(tui::paragraph(lines, "review groups"), cols[1]);
 
-        // Right: first group's files as a sample
-        let right_lines: Vec<Line> = if let Some(g) = multi.first() {
-            let mut v = vec![tui::section_label("sample group"), tui::blank()];
-            for file in &g.files {
-                v.push(tui::bullet(file));
-            }
+        // Right: every file of the selected group
+        let right_lines: Vec<Line> = if let Some(g) = multi.get(self.scroll_offset) {
+            let mut v = vec![
+                tui::section_label(&format!("→ {}/", suggest_folder_name(g))),
+                tui::blank(),
+            ];
+            v.extend(g.files.iter().map(tui::bullet));
             v
         } else {
             vec![
@@ -806,7 +789,21 @@ impl FilenameTuiApp {
                 tui::header("no multi-file groups", tui::MUTED),
             ]
         };
-        f.render_widget(tui::paragraph(right_lines, "sample"), cols[2]);
+        f.render_widget(tui::paragraph(right_lines, "selected group"), cols[2]);
+    }
+
+    /// Last valid scroll position for the list shown in the current state.
+    fn max_scroll(&self) -> usize {
+        match &self.state {
+            FilenameAppState::ReviewGroups => self
+                .groups
+                .iter()
+                .filter(|g| g.files.len() > 1)
+                .count()
+                .saturating_sub(1),
+            FilenameAppState::Complete(r) => r.skipped_details.len().saturating_sub(1),
+            _ => 0,
+        }
     }
 
     fn draw_complete(&self, f: &mut Frame, cols: [Rect; 3], result: &OrganizeResult) {
@@ -857,24 +854,6 @@ impl FilenameTuiApp {
 
     /// Runs without any UI: analyze then organize immediately.
     pub fn auto_organize(&mut self) -> io::Result<()> {
-        let entries: Vec<_> = fs::read_dir(&self.base_path)?
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                let p = e.path();
-                p.is_file() && !(self.config.skip_hidden_files && is_hidden(&p))
-            })
-            .collect();
-        let filenames: Vec<String> = entries
-            .iter()
-            .filter_map(|e| {
-                e.path()
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(String::from)
-            })
-            .collect();
-        self.groups = group_similar_files(&filenames, &self.config);
-
         let mut logger = |_: &str| {};
         let result = organize_by_similarity(
             &self.base_path,
@@ -886,6 +865,10 @@ impl FilenameTuiApp {
         self.state = FilenameAppState::Complete(result);
         Ok(())
     }
+}
+
+fn pct(v: f64) -> String {
+    format!("{:.0}%", v * 100.0)
 }
 
 fn print_summary(result: &OrganizeResult) {
@@ -945,24 +928,17 @@ impl App for FilenameTuiApp {
                 self.state_changed = true;
                 Flow::Continue
             }
-            (KeyCode::Char('k'), ReviewGroups) => {
+            (KeyCode::Char('k'), Ready | ReviewGroups) => {
                 self.move_skipped_to_folder = !self.move_skipped_to_folder;
                 Flow::Continue
             }
-            (KeyCode::Up, _) => {
-                self.scroll_offset = self.scroll_offset.saturating_sub(1);
-                Flow::Continue
-            }
-            (KeyCode::Down, _) => {
-                self.scroll_offset += 1;
-                Flow::Continue
-            }
-            (KeyCode::PageUp, _) => {
-                self.scroll_offset = self.scroll_offset.saturating_sub(10);
-                Flow::Continue
-            }
-            (KeyCode::PageDown, _) => {
-                self.scroll_offset += 10;
+            (KeyCode::Up | KeyCode::PageUp | KeyCode::Down | KeyCode::PageDown, _) => {
+                let step = if matches!(key, KeyCode::PageUp | KeyCode::PageDown) { 10 } else { 1 };
+                self.scroll_offset = if matches!(key, KeyCode::Up | KeyCode::PageUp) {
+                    self.scroll_offset.saturating_sub(step)
+                } else {
+                    (self.scroll_offset + step).min(self.max_scroll())
+                };
                 Flow::Continue
             }
             _ => Flow::Continue,
@@ -980,7 +956,11 @@ impl App for FilenameTuiApp {
         );
 
         let (status, status_color, bindings): (&str, Color, &[(&str, &str)]) = match &self.state {
-            FilenameAppState::Ready => ("ready", tui::OK, &[("a", "analyze"), ("q", "quit")]),
+            FilenameAppState::Ready => (
+                "ready",
+                tui::OK,
+                &[("a", "analyze"), ("k", "toggle skip"), ("q", "quit")],
+            ),
             FilenameAppState::Analyzing(_) => ("analyzing", tui::WARN, &[("...", "please wait")]),
             FilenameAppState::ReviewGroups => (
                 "review",
@@ -988,7 +968,7 @@ impl App for FilenameTuiApp {
                 &[
                     ("s", "organize"),
                     ("k", "toggle skip"),
-                    ("↑↓", "scroll"),
+                    ("↑↓", "select group"),
                     ("q", "quit"),
                 ],
             ),
@@ -1020,5 +1000,22 @@ impl App for FilenameTuiApp {
             }
             FilenameAppState::Complete(result) => self.draw_complete(f, cols, result),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_files_drops_skip_patterns() {
+        let dir = std::env::temp_dir().join(format!("tyr-fn-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("desktop.ini"), "").unwrap();
+        fs::write(dir.join("report_1.pdf"), "").unwrap();
+        let files = list_files(&dir, &SimilarityConfig::default()).unwrap();
+        assert_eq!(files, vec!["report_1.pdf".to_string()]);
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

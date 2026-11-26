@@ -154,41 +154,23 @@ pub fn organize_files_intelligently(
     Ok(ClusterResult { groups })
 }
 
+/// Top-level files only: recursing would pull files out of nested projects
+/// and previously organized group folders.
 fn collect_files(directory: &Path, config: &IntelligentConfig) -> Result<Vec<PathBuf>, io::Error> {
     let mut files = Vec::new();
-    let mut stack = vec![directory.to_path_buf()];
-
-    while let Some(dir) = stack.pop() {
-        if !dir.is_dir() {
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        if !path.is_file() || (config.skip_hidden_files && is_hidden(&path)) {
             continue;
         }
-
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if config.skip_hidden_files && is_hidden(&path) {
-                continue;
-            }
-
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if config
-                    .skip_patterns
-                    .iter()
-                    .any(|p| name.contains(p.as_str()))
-                {
-                    continue;
-                }
-            }
-
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.is_file() {
-                files.push(path);
-            }
+        let skipped = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|name| config.skip_patterns.iter().any(|p| name.contains(p.as_str())));
+        if !skipped {
+            files.push(path);
         }
     }
-
     Ok(files)
 }
 
@@ -933,6 +915,7 @@ impl IntelligentTuiApp {
     }
 
     fn start_analysis(&mut self) {
+        self.log_messages.clear();
         self.state = AppState::Analyzing(Job::spawn({
             let config = self.config.clone();
             let base_path = self.base_path.clone();
@@ -946,30 +929,20 @@ impl IntelligentTuiApp {
         }));
     }
 
-    fn start_move(&mut self, result: ClusterResult, dry_run: bool) {
+    fn start_move(&mut self, result: ClusterResult) {
         let base_path = self.base_path.clone();
-        self.log_messages.clear();
-        let job = Job::spawn(move |tx| {
-            let label = if dry_run { "[DRY RUN] " } else { "" };
-            let _ = tx.send(Progress::Update(format!(
-                "{label}Moving files to groups..."
-            )));
-            move_files_to_groups(&base_path, &result, dry_run)
-                .unwrap_or_else(|e| vec![format!("Error: {e}")])
-        });
-        if dry_run {
-            // For dry run, run synchronously so we can stay in Complete state
-            // and just update log_messages (no state change needed).
-            // We still use tui::Job so the spinner shows briefly.
-            self.state = AppState::Moving(job);
-        } else {
-            self.state = AppState::Moving(job);
-        }
+        self.state = AppState::Moving(Job::spawn(move |tx| {
+            let _ = tx.send(Progress::Update("Moving files to groups...".into()));
+            move_files_to_groups(&base_path, &result, false)
+                .unwrap_or_else(|e| vec![format!("ERROR: {e}")])
+        }));
     }
 
     fn draw_ready(&self, f: &mut Frame, cols: [Rect; 3]) {
-        let left = vec![
-            tui::blank(),
+        let mut left = vec![tui::blank()];
+        // an analysis error sends us back here; show it
+        left.extend(self.log_messages.iter().map(|m| tui::header(m.clone(), tui::ERR)));
+        left.extend([
             tui::section_label("target"),
             tui::path_line(&self.base_path.display().to_string()),
             tui::blank(),
@@ -989,7 +962,7 @@ impl IntelligentTuiApp {
                 format!("{:.0}%", self.config.similarity_threshold * 100.0),
                 tui::WARN,
             ),
-        ];
+        ]);
         f.render_widget(tui::paragraph(left, "scan target"), cols[0]);
 
         let mid = vec![
@@ -1011,7 +984,7 @@ impl IntelligentTuiApp {
             )),
             tui::bullet("auto-generates group names"),
             tui::blank(),
-            tui::header("press [s] to start", tui::MUTED),
+            tui::header("[s] analyze — nothing moves until you confirm", tui::MUTED),
         ];
         f.render_widget(tui::paragraph(mid, "overview"), cols[1]);
 
@@ -1049,7 +1022,11 @@ impl IntelligentTuiApp {
             tui::stat("files analyzed", total.to_string(), tui::OK),
             tui::stat("groups found", result.groups.len().to_string(), tui::ML),
             tui::blank(),
-            tui::header("press [m] move  [d] dry run", tui::WARN),
+            if self.log_messages.is_empty() {
+                tui::header("[d] preview moves  [m] apply", tui::WARN)
+            } else {
+                tui::header("preview ready — [m] to apply", tui::INFO)
+            },
         ];
         f.render_widget(tui::paragraph(left, "results"), cols[0]);
 
@@ -1086,7 +1063,10 @@ impl IntelligentTuiApp {
 
         let left = vec![
             tui::blank(),
-            tui::header("✓ files moved", tui::OK),
+            tui::header(
+                if errors.is_empty() { "✓ files moved" } else { "⚠ moved with errors" },
+                if errors.is_empty() { tui::OK } else { tui::WARN },
+            ),
             tui::blank(),
             tui::stat("operations", log.len().to_string(), tui::OK),
             tui::stat("errors", errors.len().to_string(), tui::ERR),
@@ -1203,17 +1183,15 @@ impl App for IntelligentTuiApp {
             (AppState::Complete(_), KeyCode::Char('m')) => {
                 let state = std::mem::replace(&mut self.state, AppState::Ready);
                 if let AppState::Complete(result) = state {
-                    self.start_move(result, false);
+                    self.start_move(result);
                     self.state_changed = true;
                 }
                 Flow::Continue
             }
-            (AppState::Complete(_), KeyCode::Char('d')) => {
-                let state = std::mem::replace(&mut self.state, AppState::Ready);
-                if let AppState::Complete(result) = state {
-                    self.start_move(result, true);
-                    self.state_changed = true;
-                }
+            // dry run only builds a plan, so do it inline and stay on this screen
+            (AppState::Complete(result), KeyCode::Char('d')) => {
+                self.log_messages = move_files_to_groups(&self.base_path, result, true)
+                    .unwrap_or_else(|e| vec![format!("ERROR: {e}")]);
                 Flow::Continue
             }
             _ => Flow::Continue,
@@ -1236,7 +1214,7 @@ impl App for IntelligentTuiApp {
             AppState::Complete(_) => (
                 "complete",
                 tui::OK,
-                &[("m", "move files"), ("d", "dry run"), ("q", "quit")],
+                &[("d", "dry run"), ("m", "move files"), ("q", "quit")],
             ),
             AppState::Moving(_) => ("moving", tui::INFO, &[("...", "please wait")]),
             AppState::Moved(_) => ("done", tui::OK, &[("q", "quit")]),

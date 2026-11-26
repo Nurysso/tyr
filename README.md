@@ -133,6 +133,7 @@ tyr --version
 | :---------- | :--------------------------------------------------------- |
 | `s`         | **Start** organizing files into category folders           |
 | `d`         | **Dry run** (preview planned moves without touching files) |
+| `s`         | After a dry run: **apply** the previewed moves             |
 | `q` / `Esc` | **Quit** the application                                   |
 
 ### Filename Similarity Mode (`tyr -f`)
@@ -142,7 +143,7 @@ tyr --version
 | `a`                   | **Analyze** directory and compute similarity groups                       |
 | `s`                   | **Organize** and move files into discovered groups                        |
 | `k`                   | **Toggle skip destination** (route unmatched single files to `tyr-skip/`) |
-| `↑` / `↓`             | **Scroll** through discovered groups and file lists                       |
+| `↑` / `↓`             | **Select** a group (its files show on the right) / scroll lists           |
 | `PageUp` / `PageDown` | **Fast scroll** by 10 items                                               |
 | `q` / `Esc`           | **Quit** the application                                                  |
 
@@ -151,8 +152,8 @@ tyr --version
 | Key         | Action                                                |
 | :---------- | :---------------------------------------------------- |
 | `s`         | **Start** feature extraction and K-Means++ clustering |
+| `d`         | **Dry run** preview of operations (stays on screen)   |
 | `m`         | **Move** files into suggested cluster directories     |
-| `d`         | **Dry run** preview of operations                     |
 | `q` / `Esc` | **Quit** the application                              |
 
 ---

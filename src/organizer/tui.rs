@@ -11,7 +11,7 @@
 #![allow(dead_code)]
 
 use ratatui::crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -40,6 +40,7 @@ pub const INFO: Color = Color::Cyan;
 pub const MUTED: Color = Color::DarkGray;
 pub const ML: Color = Color::Magenta;
 pub const DIM: Color = Color::Indexed(61);
+pub const BORDER: Color = Color::Indexed(238);
 
 pub enum Flow {
     Continue,
@@ -58,17 +59,13 @@ pub trait App {
 pub fn run(app: &mut impl App) -> io::Result<()> {
     enable_raw_mode()?;
     let mut out = io::stdout();
-    execute!(out, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(out, EnterAlternateScreen)?;
     let mut term = Terminal::new(CrosstermBackend::new(out))?;
 
     let outcome = catch_unwind(AssertUnwindSafe(|| event_loop(app, &mut term)));
 
     disable_raw_mode()?;
-    execute!(
-        term.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    execute!(term.backend_mut(), LeaveAlternateScreen)?;
     term.show_cursor()?;
 
     outcome.unwrap_or_else(|p| std::panic::resume_unwind(p))
@@ -102,6 +99,10 @@ fn poll_key(app: &mut impl App) -> io::Result<Option<Flow>> {
         return Ok(None);
     }
     match event::read()? {
+        // raw mode swallows SIGINT, so treat Ctrl+C like Esc
+        Event::Key(k) if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) => {
+            Ok(Some(app.on_key(KeyCode::Esc)))
+        }
         Event::Key(k) => Ok(Some(app.on_key(k.code))),
         _ => Ok(None),
     }
@@ -181,10 +182,10 @@ pub fn panel(title: &str) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Indexed(236))) // very dark gray border
+        .border_style(Style::default().fg(BORDER))
         .title(Span::styled(
-            format!("╴{title}"),
-            Style::default().fg(MUTED),
+            format!(" {title} "),
+            Style::default().fg(INFO).add_modifier(Modifier::BOLD),
         ))
 }
 
@@ -201,7 +202,8 @@ pub fn wordmark_bar(subtitle: &str) -> Paragraph<'static> {
     Paragraph::new(line).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded),
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(BORDER)),
     )
 }
 
@@ -213,7 +215,8 @@ pub fn header_row(f: &mut Frame, area: Rect, subtitle: &str, status: &str, statu
         Paragraph::new(Line::from(vec![Span::raw(" "), chip(status, status_color)])).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_type(BorderType::Rounded),
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(BORDER)),
         ),
         cols[1],
     );
@@ -223,15 +226,9 @@ pub fn controls_bar(bindings: &[(&str, &str)]) -> Paragraph<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     for (i, (key, action)) in bindings.iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled(
-                "  │  ",
-                Style::default().fg(Color::Indexed(237)),
-            ));
+            spans.push(Span::raw("   "));
         }
-        spans.push(Span::styled(
-            format!("[{key}]"),
-            Style::default().fg(WARN).add_modifier(Modifier::BOLD),
-        ));
+        spans.push(chip(key, WARN));
         spans.push(Span::raw(" "));
         spans.push(Span::styled(action.to_string(), Style::default().fg(MUTED)));
     }
@@ -239,7 +236,7 @@ pub fn controls_bar(bindings: &[(&str, &str)]) -> Paragraph<'static> {
         Block::default()
             .borders(Borders::TOP)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Indexed(236))),
+            .border_style(Style::default().fg(BORDER)),
     )
 }
 

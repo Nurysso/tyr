@@ -93,9 +93,9 @@ Built using **Ratatui** and **Crossterm**, featuring:
 
 | Context                | Key             | Action                                            |
 | :--------------------- | :-------------- | :------------------------------------------------ |
-| **Global**             | `q` / `Esc`     | Quit the active screen / application              |
+| **Global**             | `q` / `Esc` / `Ctrl+C` | Quit the active screen / application       |
 | **Categorize (`-c`)**  | `s`             | Start file organization                           |
-|                        | `d`             | Run dry-run preview                               |
+|                        | `d`             | Run dry-run preview, then `s` to apply it         |
 | **Filename (`-f`)**    | `a`             | Begin similarity analysis                         |
 |                        | `s`             | Organize discovered groups into folders           |
 |                        | `k`             | Toggle moving skipped single files to `tyr-skip/` |
@@ -103,7 +103,7 @@ Built using **Ratatui** and **Crossterm**, featuring:
 |                        | `PgUp` / `PgDn` | Fast scroll by 10 items                           |
 | **Intelligent (`-i`)** | `s`             | Start TF-IDF feature extraction & clustering      |
 |                        | `m`             | Move files into suggested clusters                |
-|                        | `d`             | Perform dry-run preview of cluster movements      |
+|                        | `d`             | Dry-run preview of cluster moves, then `m` to apply |
 
 ---
 
